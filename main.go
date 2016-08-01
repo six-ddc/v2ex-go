@@ -35,23 +35,44 @@ type UILog struct {
 func NewLog() *UILog {
 	l := &UILog{Index: 0, Label: "Log [C-l]"}
 	l.Widget = ui.NewList()
-	l.Widget.Height = 5
+	l.Widget.Height = 20
 	l.Widget.BorderLabel = l.Label
 	l.Widget.Items = make([]string, l.Widget.Height-2)
 	return l
 }
 
 type UITab struct {
-	Widget   *ui.List
-	Label    string
-	NameList [][]string
+	Widget       *ui.List
+	Label        string
+	NameList     [][]string
+	ChildList    [][][]string
+	CurrTab      int
+	CurrChildTab int
 }
 
 func NewTab() *UITab {
-	t := &UITab{Label: "Tab [C-t]"}
+	t := &UITab{Label: "Tab [C-t]", CurrTab: 0, CurrChildTab: -1}
 	t.NameList = [][]string{
 		{"技术", "创意", "好玩", "Apple", "酷工作", "交易", "城市", "问与答", "最热", "全部", "R2", "节点", "关注"},
 		{"tech", "creative", "play", "apple", "jobs", "deals", "city", "qna", "hot", "all", "r2", "nodes", "members"}}
+	t.ChildList = [][][]string{
+		{
+			{"程序员", "Python", "iDev", "Android", "Linux", "node.js", "云计算", "宽带症候群"},
+			{"programmer", "python", "idev", "android", "linux", "nodejs", "cloud", "bb"},
+		},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	}
 	t.Widget = ui.NewList()
 	t.Widget.BorderLabel = t.Label
 	t.Widget.Height = 2 + 2
@@ -69,7 +90,29 @@ func (t *UITab) Highlight(b bool) {
 }
 
 func (t *UITab) ResetTabList() {
-	t.Widget.Items[0] = strings.Join(t.NameList[0], " ")
+	strList := []string{}
+	for i, names := range (t.NameList)[0] {
+		if i == t.CurrTab {
+			strList = append(strList, fmt.Sprintf("[%s](bg-red)", names))
+		} else {
+			strList = append(strList, names)
+		}
+	}
+	t.Widget.Items[0] = strings.Join(strList, " ")
+	childList := (t.ChildList)[t.CurrTab]
+	if len(childList) == 0 {
+		t.Widget.Items[1] = ""
+		return
+	}
+	strList = strList[:0]
+	for i, names := range childList[0] {
+		if i == t.CurrChildTab {
+			strList = append(strList, fmt.Sprintf("[%s](bg-red)", names))
+		} else {
+			strList = append(strList, names)
+		}
+	}
+	t.Widget.Items[1] = strings.Join(strList, " ")
 }
 
 func (t *UITab) UpdateLabel() {
@@ -78,6 +121,17 @@ func (t *UITab) UpdateLabel() {
 		str = fmt.Sprintf("%s (%s)", str, ShortKeys)
 	}
 	t.Widget.BorderLabel = str
+}
+
+func (t *UITab) GetTabNode() (cate string, node string) {
+	cate = t.NameList[1][t.CurrTab]
+	if t.CurrChildTab >= 0 {
+		childList := (t.ChildList)[t.CurrTab]
+		if len(childList) > 0 {
+			node = childList[1][t.CurrChildTab]
+		}
+	}
+	return
 }
 
 func (t *UITab) MatchTab() {
@@ -99,18 +153,48 @@ func (t *UITab) MatchTab() {
 		}
 	}
 	t.Widget.Items[0] = strings.Join(strList, " ")
+	childList := (t.ChildList)[t.CurrTab]
+	if len(childList) == 0 {
+		return
+	}
+	strList = strList[:0]
+	for i, names := range childList[1] {
+		str := matchKey([]byte(names), ShortKeys)
+		if str != names {
+			if count == MatchIndex {
+				strList = append(strList, fmt.Sprintf("[%s](bg-red)<%s>", childList[0][i], str))
+			} else {
+				strList = append(strList, fmt.Sprintf("[%s](bg-blue)<%s>", childList[0][i], str))
+			}
+			count++
+			MatchList = append(MatchList, i+len(t.NameList[1]))
+		} else {
+			strList = append(strList, fmt.Sprintf("%s<%s>", childList[0][i], names))
+		}
+	}
+	t.Widget.Items[1] = strings.Join(strList, " ")
 }
+
+type TopicType uint16
+
+const (
+	TopicTab TopicType = iota
+	TopicNode
+)
 
 type UITopicList struct {
-	Widget       *ui.List
-	Label        string
-	Category     string
-	AllTopicList []string
-	TopicFirst   int
+	Tab           *UITab
+	Widget        *ui.List
+	Label         string
+	Name          string
+	Type          TopicType
+	AllTopicItems []string
+	TopicFirst    int
+	AllTopicInfo  []TopicInfo
 }
 
-func NewTopicList() *UITopicList {
-	l := &UITopicList{Label: "Title [C-p]", TopicFirst: 0}
+func NewTopicList(t *UITab) *UITopicList {
+	l := &UITopicList{Tab: t, Label: "Title [C-p]", TopicFirst: 0, Type: TopicTab}
 	l.Widget = ui.NewList()
 	l.Widget.BorderLabel = l.Label
 	return l
@@ -141,9 +225,13 @@ func (l *UITopicList) SetBgColor(i int, color ui.Attribute) {
 
 func (l *UITopicList) SetItems(items []string, updateLastList bool) {
 	if updateLastList {
-		l.AllTopicList = items
+		l.AllTopicItems = items
 	}
-	l.Widget.Items = make([]string, l.Height())
+	sz := l.Height()
+	if len(items) < sz {
+		sz = len(items)
+	}
+	l.Widget.Items = make([]string, sz)
 	copy(l.Widget.Items, items) // 复制长度以较小的slice为准
 	l.ResetBgColor()
 }
@@ -157,8 +245,8 @@ func (l *UITopicList) ResetBgColor() {
 
 func (l *UITopicList) UpdateLabel() {
 	str := l.Label
-	if len(l.Category) > 0 {
-		str = fmt.Sprintf("%s (%s)", str, l.Category)
+	if len(l.Name) > 0 {
+		str = fmt.Sprintf("%s (%s)", str, l.Name)
 	}
 	if len(ShortKeys) > 0 {
 		str = fmt.Sprintf("%s (%s)", str, ShortKeys)
@@ -170,8 +258,9 @@ func (l *UITopicList) MatchTopic() {
 	count := 0
 	MatchList = MatchList[:0]
 	l.ResetBgColor()
-	for i := 0; i < l.Height(); i++ {
-		item := l.AllTopicList[i+l.TopicFirst]
+	uiPrintln("+", len(l.Widget.Items), len(l.AllTopicItems), l.TopicFirst)
+	for i := 0; i < len(l.Widget.Items); i++ {
+		item := l.AllTopicItems[i+l.TopicFirst]
 		str := matchKey([]byte(item), ShortKeys)
 		if str != item {
 			if count == MatchIndex {
@@ -184,17 +273,86 @@ func (l *UITopicList) MatchTopic() {
 		}
 		l.SetItem(i, str)
 	}
-	uiPrintln(len(MatchList), MatchIndex)
 }
 
-func (l *UITopicList) Fresh(cate string) {
+func (l *UITopicList) Fresh() {
+	cate, node := l.Tab.GetTabNode()
+	uiPrintln(cate, node)
 	resetMatch()
-	l.Category = "..."
+	l.Name = "..."
 	l.UpdateLabel()
 	ui.Render(ui.Body)
-	l.Category = cate
-	drawTopic(cate)
+	if len(node) > 0 {
+		l.Name = node
+		l.Type = TopicNode
+		l.AllTopicInfo = parseTopicByNode(l.Name)
+	} else {
+		l.Name = cate
+		l.Type = TopicTab
+		l.AllTopicInfo = parseTopicByTab(l.Name)
+	}
+	l.DrawTopic()
 	l.UpdateLabel()
+}
+
+func (l *UITopicList) DrawTopic() {
+	lst := make([]string, len(l.AllTopicInfo))
+	for i, info := range l.AllTopicInfo {
+		lst[i] = fmt.Sprintf("<%2d> <%s> %s|[%s](fg-yellow)", i, randID(), info.Title, info.Author)
+	}
+	l.SetItems(lst, true)
+}
+
+func (l *UITopicList) ScrollDown() {
+	sz := len(l.AllTopicItems)
+	screen_heigth := l.Height()
+	if sz > screen_heigth+l.TopicFirst {
+		l.ResetBgColor()
+		l.TopicFirst++
+		l.SetItems(l.AllTopicItems[l.TopicFirst:], false)
+		ui.Render(ui.Body)
+	}
+}
+
+func (l *UITopicList) PageDown() {
+	sz := len(l.AllTopicItems)
+	screen_heigth := l.Height()
+	if sz < screen_heigth {
+		return
+	}
+	index := l.TopicFirst + screen_heigth
+	if index > sz-screen_heigth {
+		index = sz - screen_heigth
+		if index == l.TopicFirst {
+			return
+		}
+	}
+	l.TopicFirst = index
+	l.SetItems(l.AllTopicItems[l.TopicFirst:], false)
+	ui.Render(ui.Body)
+}
+
+func (l *UITopicList) PageUp() {
+	screen_heigth := l.Height()
+	index := l.TopicFirst - screen_heigth
+	if index < 0 {
+		index = 0
+		if index == l.TopicFirst {
+			return
+		}
+	}
+	l.TopicFirst = index
+	l.SetItems(l.AllTopicItems[l.TopicFirst:], false)
+	ui.Render(ui.Body)
+}
+
+func (l *UITopicList) ScrollUp() {
+	if l.TopicFirst > 0 {
+		l.ResetBgColor()
+		l.TopicFirst--
+		l.SetItems(l.AllTopicItems[l.TopicFirst:], false)
+		ui.Render(ui.Body)
+	}
 }
 
 type TopicInfo struct {
@@ -217,6 +375,10 @@ const (
 )
 
 func uiLog(str string) {
+	if ui_log == nil {
+		log.Println(str)
+		return
+	}
 	str = fmt.Sprintf("[%d] %s", ui_log.Index+1, str)
 	if ui_log.Widget.Items[len(ui_log.Widget.Items)-1] != "" {
 		i := 0
@@ -238,7 +400,7 @@ func uiLog(str string) {
 
 // Write(p []byte) (n int, err error)
 func uiPrintln(a ...interface{}) {
-	uiLog(fmt.Sprintln(a))
+	uiLog(fmt.Sprint(a))
 }
 
 func init() {
@@ -322,33 +484,68 @@ func matchKey(str, key []byte) string {
 	return string(str)
 }
 
-func parseTab(tabName string) (ret *[]TopicInfo) {
-	ret = &[]TopicInfo{}
-	url := fmt.Sprintf("https://www.v2ex.com/?tab=%s", tabName)
+func parseTopicByTab(tab string) (ret []TopicInfo) {
+	url := fmt.Sprintf("https://www.v2ex.com/?tab=%s", tab)
+	uiPrintln(url)
 	doc, err := goquery.NewDocument(url)
 	if err != nil {
-		log.Fatal(err)
+		uiPrintln(err)
 		return
 	}
 	doc.Find("div.cell.item").Each(func(i int, s *goquery.Selection) {
 		topic := TopicInfo{}
 		topic.Title = s.Find(".item_title a").Text()
 		info := s.Find(".small.fade").Text()
-		info = strings.TrimSpace(info)
 		infoList := strings.Split(info, "•")
-		topic.Node = infoList[0]
-		topic.Author = infoList[1]
+		topic.Node = strings.TrimSpace(infoList[0])
+		topic.Author = strings.TrimSpace(infoList[1])
 		if len(infoList) > 2 {
-			topic.Time = infoList[2]
+			topic.Time = strings.TrimSpace(infoList[2])
 			if len(infoList) > 3 {
-				topic.LastReply = infoList[3]
+				topic.LastReply = strings.TrimSpace(infoList[3])
 			}
 		}
 		replyCount := s.Find("a count_livid").Text()
 		if replyCount != "" {
 			topic.ReplyCount, _ = strconv.Atoi(replyCount)
 		}
-		*ret = append(*ret, topic)
+		ret = append(ret, topic)
+		// log.Println(s.Find(".small.fade a.node").Text())
+		// log.Println(s.Find(".small.fade strong a").Text())
+	})
+	return
+}
+
+func parseTopicByNode(node string) (ret []TopicInfo) {
+	url := fmt.Sprintf("https://www.v2ex.com/go/%s", node)
+	uiPrintln(url)
+	doc, err := goquery.NewDocument(url)
+	if err != nil {
+		uiPrintln(err)
+		return
+	}
+	doc.Find("div.cell").Each(func(i int, s *goquery.Selection) {
+		info := s.Find(".small.fade").Text()
+		info = strings.TrimSpace(info)
+		if len(info) == 0 {
+			return
+		}
+		topic := TopicInfo{}
+		topic.Title = s.Find(".item_title a").Text()
+		infoList := strings.Split(info, "•")
+		topic.Node = node
+		topic.Author = strings.TrimSpace(infoList[0])
+		if len(infoList) > 2 {
+			topic.Time = strings.TrimSpace(infoList[1])
+			if len(infoList) > 3 {
+				topic.LastReply = strings.TrimSpace(infoList[2])
+			}
+		}
+		replyCount := s.Find("a count_livid").Text()
+		if replyCount != "" {
+			topic.ReplyCount, _ = strconv.Atoi(replyCount)
+		}
+		ret = append(ret, topic)
 		// log.Println(s.Find(".small.fade a.node").Text())
 		// log.Println(s.Find(".small.fade strong a").Text())
 	})
@@ -360,16 +557,6 @@ func randID() []byte {
 	ret[0] = byte(rand.Int()%26) + 'a'
 	ret[1] = byte(rand.Int()%26) + 'a'
 	return ret
-}
-
-func drawTopic(topicName string) {
-	topicList := parseTab(topicName)
-
-	lst := make([]string, len(*topicList))
-	for i, info := range *topicList {
-		lst[i] = fmt.Sprintf("<%2d> <%s> %s", i, randID(), info.Title)
-	}
-	ui_list.SetItems(lst, true)
 }
 
 func handleKey(e ui.Event) {
@@ -412,13 +599,20 @@ func handleKey(e ui.Event) {
 		}
 		if key == "<enter>" {
 			if CurrState == StateTab {
-				var cate string
+				ui_tab.CurrChildTab = -1
 				if len(MatchList) > 0 {
-					cate = ui_tab.NameList[1][MatchList[MatchIndex]]
+					tab := MatchList[MatchIndex]
+					sz := len(ui_tab.NameList[0])
+					if tab >= sz {
+						ui_tab.CurrChildTab = tab - sz
+					} else {
+						ui_tab.CurrTab = tab
+					}
 				} else {
-					cate = ui_tab.NameList[1][0]
+					ui_tab.CurrTab = 0
 				}
-				ui_list.Fresh(cate)
+				uiPrintln("---", MatchList, MatchIndex, ui_tab.CurrChildTab, ui_tab.CurrTab)
+				ui_list.Fresh()
 				switchState(StateTopic)
 			}
 		}
@@ -427,13 +621,18 @@ func handleKey(e ui.Event) {
 }
 
 func main() {
+	/*
+		parseTopicByNode("programmer")
+		os.Exit(1)
+	*/
+
 	defer ui.Close()
 
 	ui_tab = NewTab()
 
 	ui_log = NewLog()
 
-	ui_list = NewTopicList()
+	ui_list = NewTopicList(ui_tab)
 	ui_list.Widget.Height = ui.TermHeight() - ui_log.Widget.Height - ui_tab.Widget.Height
 
 	ui.Body.AddRows(
@@ -453,8 +652,7 @@ func main() {
 			LastCtrlW = time.Now().Unix()
 		} else {
 			now := time.Now().Unix()
-			uiPrintln(LastCtrlW, now, CurrState)
-			if now-LastCtrlW <= 1 {
+			if now-LastCtrlW <= 2 {
 				state := (CurrState + 1) % StateMax
 				if state == StateDefault {
 					state++
@@ -465,6 +663,7 @@ func main() {
 				LastCtrlW = now
 			}
 		}
+		ui.Render(ui.Body)
 	})
 	ui.Handle("/sys/kbd/C-t", func(ui.Event) {
 		if CurrState != StateTab {
@@ -476,28 +675,22 @@ func main() {
 	})
 	ui.Handle("/sys/kbd/C-r", func(ui.Event) {
 		if CurrState == StateTopic {
-			ui_list.Fresh(ui_list.Category)
+			ui_list.Fresh()
 		}
 		ui.Render(ui.Body)
 	})
+	ui.Handle("/sys/kbd/C-f", func(ui.Event) {
+		ui_list.PageDown()
+	})
+	ui.Handle("/sys/kbd/C-b", func(ui.Event) {
+		ui_list.PageUp()
+	})
 	ui.Handle("/sys/kbd/C-e", func(ui.Event) {
-		sz := len(ui_list.AllTopicList)
-		screen_heigth := ui_list.Height()
-		if sz > screen_heigth+ui_list.TopicFirst {
-			ui_list.ResetBgColor()
-			ui_list.TopicFirst++
-			ui_list.SetItems(ui_list.AllTopicList[ui_list.TopicFirst:], false)
-			ui.Render(ui.Body)
-		}
+		ui_list.ScrollDown()
 	})
 	ui.Handle("/sys/kbd/C-y", func(ui.Event) {
-		if ui_list.TopicFirst > 0 {
-			ui_list.ResetBgColor()
-			ui_list.TopicFirst--
-			uiPrintln(ui_list.TopicFirst, len(ui_list.AllTopicList))
-			ui_list.SetItems(ui_list.AllTopicList[ui_list.TopicFirst:], false)
-			ui.Render(ui.Body)
-		}
+		ui_list.ScrollUp()
+		ui.Render(ui.Body)
 	})
 	ui.Handle("/sys/kbd/C-p", func(ui.Event) {
 		if CurrState != StateTopic {
@@ -522,6 +715,15 @@ func main() {
 		ui_list.Widget.Height = ui.TermHeight() - ui_log.Widget.Height - ui_tab.Widget.Height
 		ui.Body.Align()
 		ui.Render(ui.Body)
+	})
+	firstLoad := true
+	ui.Handle("/timer/1s", func(e ui.Event) {
+		if firstLoad {
+			firstLoad = false
+			ui_list.Fresh()
+			switchState(StateTopic)
+			ui.Render(ui.Body)
+		}
 	})
 	ui.Loop()
 }
