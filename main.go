@@ -3,11 +3,20 @@ package main
 import (
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
+	requests "github.com/levigross/grequests"
+	rw "github.com/mattn/go-runewidth"
 	ui "github.com/six-ddc/termui"
-	// requests "github.com/levigross/grequests"
+	// "io/ioutil"
+	"errors"
 	"log"
 	"math/rand"
+	// "net/http"
+	// "net/http/cookiejar"
+	// "net/url"
+	// "golang.org/x/net/html"
 	"os"
+	// "golang.org/x/net/publicsuffix"
+	// "encoding/json"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +27,8 @@ var (
 	ui_log  *UILog
 	ui_tab  *UITab
 
+	Session *requests.Session
+
 	LastCtrlW int64
 	CurrState State
 
@@ -25,6 +36,17 @@ var (
 	MatchList  []int
 	MatchIndex int
 )
+
+type UserInfo struct {
+	Name   string
+	Notify int
+	Silver int
+	Bronze int
+}
+
+var userInfo UserInfo
+
+var userAgent string = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/52.0.2743.82 Safari/537.36"
 
 type UILog struct {
 	Widget *ui.List
@@ -35,7 +57,7 @@ type UILog struct {
 func NewLog() *UILog {
 	l := &UILog{Index: 0, Label: "Log [C-l]"}
 	l.Widget = ui.NewList()
-	l.Widget.Height = 20
+	l.Widget.Height = 5
 	l.Widget.BorderLabel = l.Label
 	l.Widget.Items = make([]string, l.Widget.Height-2)
 	return l
@@ -51,28 +73,11 @@ type UITab struct {
 }
 
 func NewTab() *UITab {
-	t := &UITab{Label: "Tab [C-t]", CurrTab: 0, CurrChildTab: -1}
+	t := &UITab{Label: "Tab [C-t]", CurrTab: 9 /*(全部)*/, CurrChildTab: -1}
 	t.NameList = [][]string{
 		{"技术", "创意", "好玩", "Apple", "酷工作", "交易", "城市", "问与答", "最热", "全部", "R2", "节点", "关注"},
 		{"tech", "creative", "play", "apple", "jobs", "deals", "city", "qna", "hot", "all", "r2", "nodes", "members"}}
-	t.ChildList = [][][]string{
-		{
-			{"程序员", "Python", "iDev", "Android", "Linux", "node.js", "云计算", "宽带症候群"},
-			{"programmer", "python", "idev", "android", "linux", "nodejs", "cloud", "bb"},
-		},
-		{},
-		{},
-		{},
-		{},
-		{},
-		{},
-		{},
-		{},
-		{},
-		{},
-		{},
-		{},
-	}
+	t.ChildList = make([][][]string, len(t.NameList[0]))
 	t.Widget = ui.NewList()
 	t.Widget.BorderLabel = t.Label
 	t.Widget.Height = 2 + 2
@@ -258,11 +263,12 @@ func (l *UITopicList) MatchTopic() {
 	count := 0
 	MatchList = MatchList[:0]
 	l.ResetBgColor()
-	uiPrintln("+", len(l.Widget.Items), len(l.AllTopicItems), l.TopicFirst)
+	// log.Println("+", len(l.Widget.Items), len(l.AllTopicItems), l.TopicFirst)
 	for i := 0; i < len(l.Widget.Items); i++ {
 		item := l.AllTopicItems[i+l.TopicFirst]
-		str := matchKey([]byte(item), ShortKeys)
-		if str != item {
+		match_str := []byte(item)[:10]
+		str := matchKey(match_str, ShortKeys)
+		if str != string(match_str) {
 			if count == MatchIndex {
 				l.SetBgColor(i, ui.ColorRed)
 			} else {
@@ -270,14 +276,16 @@ func (l *UITopicList) MatchTopic() {
 			}
 			count++
 			MatchList = append(MatchList, i)
+			l.SetItem(i, fmt.Sprintf("%s%s", str, []byte(item)[10:]))
+		} else {
+			l.SetItem(i, item)
 		}
-		l.SetItem(i, str)
 	}
 }
 
 func (l *UITopicList) Fresh() {
 	cate, node := l.Tab.GetTabNode()
-	uiPrintln(cate, node)
+	log.Println(cate, node)
 	resetMatch()
 	l.Name = "..."
 	l.UpdateLabel()
@@ -298,7 +306,45 @@ func (l *UITopicList) Fresh() {
 func (l *UITopicList) DrawTopic() {
 	lst := make([]string, len(l.AllTopicInfo))
 	for i, info := range l.AllTopicInfo {
-		lst[i] = fmt.Sprintf("<%2d> <%s> %s|[%s](fg-yellow)", i, randID(), info.Title, info.Author)
+		prefix := fmt.Sprintf("<%02d> <%s> ", i, randID())
+		prefix_width := rw.StringWidth(prefix)
+		title := info.Title
+		title_witth := rw.StringWidth(title)
+		var suffix string
+		// if len(info.Time) > 0 {
+		if len(info.Time) < 0 {
+			if l.Type == TopicTab {
+				suffix = fmt.Sprintf("[<%d>](fg-bold,fg-blue) %s %s [%s](fg-green)", info.ReplyCount, info.Node, info.Time, info.Author)
+			} else {
+				suffix = fmt.Sprintf("[<%d>](fg-bold,fg-blue) %s [%s](fg-green)", info.ReplyCount, info.Time, info.Author)
+			}
+		} else {
+			if l.Type == TopicTab {
+				suffix = fmt.Sprintf("[<%d>](fg-bold,fg-blue) %s [%s](fg-green)", info.ReplyCount, info.Node, info.Author)
+			} else {
+				suffix = fmt.Sprintf("[<%d>](fg-bold,fg-blue) [%s](fg-green)", info.ReplyCount, info.Author)
+			}
+		}
+		suffix_width := rw.StringWidth(suffix) - rw.StringWidth("[](fg-bold,fg-blue)[](fg-green)")
+		space_width := l.Widget.InnerWidth() - 1 - (prefix_width + suffix_width + title_witth)
+		if space_width < 0 {
+			trim_width := l.Widget.InnerWidth() - 1 - prefix_width - suffix_width
+			title_rune := []rune(title)
+			w := 0
+			for i, ch := range title_rune {
+				w += rw.RuneWidth(ch)
+				if w > trim_width-3 {
+					if i > 0 {
+						title = string(title_rune[:i]) + "..."
+					} else {
+						title = ""
+					}
+					break
+				}
+			}
+			space_width = 0
+		}
+		lst[i] = fmt.Sprintf("%s%s%s%s", prefix, title, strings.Repeat(" ", space_width), suffix)
 	}
 	l.SetItems(lst, true)
 }
@@ -357,6 +403,7 @@ func (l *UITopicList) ScrollUp() {
 
 type TopicInfo struct {
 	Title      string
+	Url        string
 	Author     string
 	AuthorImg  string
 	Node       string
@@ -374,12 +421,8 @@ const (
 	StateMax
 )
 
-func uiLog(str string) {
-	if ui_log == nil {
-		log.Println(str)
-		return
-	}
-	str = fmt.Sprintf("[%d] %s", ui_log.Index+1, str)
+func (l *UILog) Write(p []byte) (n int, err error) {
+	str := fmt.Sprintf("[%d] %s", ui_log.Index+1, p)
 	if ui_log.Widget.Items[len(ui_log.Widget.Items)-1] != "" {
 		i := 0
 		for ; i < len(ui_log.Widget.Items)-1; i++ {
@@ -396,20 +439,7 @@ func uiLog(str string) {
 	}
 	ui_log.Index++
 	ui.Render(ui.Body)
-}
-
-// Write(p []byte) (n int, err error)
-func uiPrintln(a ...interface{}) {
-	uiLog(fmt.Sprint(a))
-}
-
-func init() {
-	LastCtrlW = 0
-	log.SetFlags(log.LstdFlags | log.Lshortfile | log.Lmicroseconds)
-	if err := ui.Init(); err != nil {
-		log.Panic(err)
-	}
-	log.SetOutput(os.Stdout)
+	return len(p), nil
 }
 
 func resetMatch() {
@@ -486,62 +516,117 @@ func matchKey(str, key []byte) string {
 
 func parseTopicByTab(tab string) (ret []TopicInfo) {
 	url := fmt.Sprintf("https://www.v2ex.com/?tab=%s", tab)
-	uiPrintln(url)
-	doc, err := goquery.NewDocument(url)
+	resp, err := Session.Get(url, &requests.RequestOptions{
+		UserAgent: userAgent,
+	})
 	if err != nil {
-		uiPrintln(err)
+		log.Println(err)
 		return
 	}
-	doc.Find("div.cell.item").Each(func(i int, s *goquery.Selection) {
-		topic := TopicInfo{}
-		topic.Title = s.Find(".item_title a").Text()
-		info := s.Find(".small.fade").Text()
-		infoList := strings.Split(info, "•")
-		topic.Node = strings.TrimSpace(infoList[0])
-		topic.Author = strings.TrimSpace(infoList[1])
-		if len(infoList) > 2 {
-			topic.Time = strings.TrimSpace(infoList[2])
-			if len(infoList) > 3 {
-				topic.LastReply = strings.TrimSpace(infoList[3])
+
+	log.Println(url, "status_code", resp.StatusCode)
+	doc, err := goquery.NewDocumentFromResponse(resp.RawResponse)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	userInfo.Name = doc.Find("span.bigger a").Text()
+	sliverStr := doc.Find("a.balance_area").Text()
+	sliverLst := strings.Split(sliverStr, " ")
+	setSli := false
+	for _, sli := range sliverLst {
+		if len(sli) > 0 {
+			if !setSli {
+				userInfo.Silver, _ = strconv.Atoi(sli)
+				setSli = true
+			} else {
+				userInfo.Bronze, _ = strconv.Atoi(sli)
+				break
 			}
 		}
-		replyCount := s.Find("a count_livid").Text()
+	}
+	log.Println("UserInfo", userInfo)
+	childList := [][]string{{}, {}}
+	doc.Find("div.box div.cell").Each(func(i int, s *goquery.Selection) {
+		if s.Next().HasClass("cell item") && s.Prev().HasClass("inner") {
+			s.Find("a").Each(func(i int, s *goquery.Selection) {
+				href, _ := s.Attr("href")
+				hrefSplit := strings.Split(href, "/")
+				if hrefSplit[len(hrefSplit)-2] == "go" {
+					href = hrefSplit[len(hrefSplit)-1]
+					childList[1] = append(childList[1], href)
+					childList[0] = append(childList[0], s.Text())
+				}
+			})
+		}
+	})
+	ui_tab.ChildList[ui_tab.CurrTab] = childList
+	doc.Find("div.cell.item").Each(func(i int, s *goquery.Selection) {
+		topic := TopicInfo{}
+		title := s.Find(".item_title a")
+		topic.Title = title.Text()
+		topic.Url, _ = title.Attr("href")
+		topic.Url = "https://www.v2ex.com" + topic.Url
+		info := s.Find(".small.fade").Text()
+		info = strings.Replace(info, " ", "", -1)
+		info = strings.Replace(info, string([]rune{0xA0}), "", -1) // 替换&nbsp
+		infoList := strings.Split(info, "•")
+		topic.Node = s.Find("a.node").Text()
+		topic.Author = infoList[1]
+		if len(infoList) > 2 {
+			topic.Time = infoList[2]
+			if len(infoList) > 3 {
+				topic.LastReply = infoList[3]
+			}
+		}
+		replyCount := s.Find("a.count_livid").Text()
 		if replyCount != "" {
 			topic.ReplyCount, _ = strconv.Atoi(replyCount)
 		}
 		ret = append(ret, topic)
-		// log.Println(s.Find(".small.fade a.node").Text())
-		// log.Println(s.Find(".small.fade strong a").Text())
 	})
 	return
 }
 
 func parseTopicByNode(node string) (ret []TopicInfo) {
 	url := fmt.Sprintf("https://www.v2ex.com/go/%s", node)
-	uiPrintln(url)
-	doc, err := goquery.NewDocument(url)
+	resp, err := Session.Get(url, &requests.RequestOptions{
+		UserAgent: userAgent,
+	})
 	if err != nil {
-		uiPrintln(err)
+		log.Println(err)
 		return
 	}
-	doc.Find("div.cell").Each(func(i int, s *goquery.Selection) {
+	log.Println(url, "status_code", resp.StatusCode)
+	doc, err := goquery.NewDocumentFromReader(resp)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	sel := doc.Find("div#TopicsNode")
+	// log.Println(sel.Size())
+	sel.Find("div.cell").Each(func(i int, s *goquery.Selection) {
 		info := s.Find(".small.fade").Text()
-		info = strings.TrimSpace(info)
+		info = strings.Replace(info, " ", "", -1)
+		info = strings.Replace(info, string([]rune{0xA0}), "", -1) // 替换&nbsp
 		if len(info) == 0 {
 			return
 		}
 		topic := TopicInfo{}
-		topic.Title = s.Find(".item_title a").Text()
+		title := s.Find(".item_title a")
+		topic.Title = title.Text()
+		topic.Url, _ = title.Attr("href")
+		topic.Url = "https://www.v2ex.com" + topic.Url
 		infoList := strings.Split(info, "•")
 		topic.Node = node
-		topic.Author = strings.TrimSpace(infoList[0])
+		topic.Author = infoList[0]
 		if len(infoList) > 2 {
-			topic.Time = strings.TrimSpace(infoList[1])
+			topic.Time = infoList[1]
 			if len(infoList) > 3 {
-				topic.LastReply = strings.TrimSpace(infoList[2])
+				topic.LastReply = infoList[2]
 			}
 		}
-		replyCount := s.Find("a count_livid").Text()
+		replyCount := s.Find("a.count_livid").Text()
 		if replyCount != "" {
 			topic.ReplyCount, _ = strconv.Atoi(replyCount)
 		}
@@ -562,12 +647,12 @@ func randID() []byte {
 func handleKey(e ui.Event) {
 	switch CurrState {
 	case StateDefault:
-		uiPrintln(e.Data.(ui.EvtKbd).KeyStr, "default")
+		log.Println(e.Data.(ui.EvtKbd).KeyStr, "default")
 	case StateTab, StateTopic:
 		key := e.Data.(ui.EvtKbd).KeyStr
 		if len(key) == 1 && ((key[0] >= '0' && key[0] <= '9') || (key[0] >= 'a' && key[0] <= 'z') || (key[0] >= 'A' && key[0] <= 'Z')) {
 			MatchIndex = 0
-			uiPrintln(e.Data.(ui.EvtKbd).KeyStr, "select")
+			log.Println(e.Data.(ui.EvtKbd).KeyStr, "select")
 			ShortKeys = append(ShortKeys, key[0])
 			if CurrState == StateTab {
 				ui_tab.MatchTab()
@@ -611,26 +696,83 @@ func handleKey(e ui.Event) {
 				} else {
 					ui_tab.CurrTab = 0
 				}
-				uiPrintln("---", MatchList, MatchIndex, ui_tab.CurrChildTab, ui_tab.CurrTab)
 				ui_list.Fresh()
 				switchState(StateTopic)
+			} else if CurrState == StateTopic {
+				if len(MatchList) > 0 {
+					idx := MatchList[MatchIndex]
+					idx += ui_list.TopicFirst
+					log.Println(ui_list.AllTopicInfo[idx].Url)
+				}
 			}
 		}
 	}
 	ui.Render(ui.Body)
 }
 
+func login(username, password string) error {
+
+	resp, _ := Session.Get("https://www.v2ex.com/signin", &requests.RequestOptions{
+		UserAgent: userAgent,
+	})
+	if resp.StatusCode != 200 {
+		return errors.New(fmt.Sprintf("resp.StatusCode=%d", resp.StatusCode))
+	}
+
+	doc, err := goquery.NewDocumentFromReader(resp)
+	if err != nil {
+		return err
+	}
+
+	formData := make(map[string]string)
+
+	doc.Find("input.sl").Each(func(i int, s *goquery.Selection) {
+		if val, _ := s.Attr("type"); val == "text" {
+			val, _ = s.Attr("name")
+			formData[val] = username
+		} else if val, _ := s.Attr("type"); val == "password" {
+			val, _ = s.Attr("name")
+			formData[val] = password
+		}
+	})
+
+	doc.Find("input").Each(func(i int, s *goquery.Selection) {
+		name, h1 := s.Attr("name")
+		value, h2 := s.Attr("value")
+		if h1 && h2 && len(value) > 0 {
+			formData[name] = value
+		}
+	})
+
+	Headers := make(map[string]string)
+	Headers["Referer"] = "https://www.v2ex.com/signin"
+	Headers["Content-Type"] = "application/x-www-form-urlencoded"
+	resp, err = Session.Post("https://www.v2ex.com/signin", &requests.RequestOptions{
+		Data:      formData,
+		UserAgent: userAgent,
+		Headers:   Headers,
+	})
+
+	return err
+}
+
+func init() {
+	log.SetFlags(log.Ltime | log.Lshortfile)
+	if err := ui.Init(); err != nil {
+		log.Panic(err)
+	}
+
+	Session = requests.NewSession(nil)
+}
+
 func main() {
-	/*
-		parseTopicByNode("programmer")
-		os.Exit(1)
-	*/
 
 	defer ui.Close()
 
 	ui_tab = NewTab()
 
 	ui_log = NewLog()
+	log.SetOutput(ui_log)
 
 	ui_list = NewTopicList(ui_tab)
 	ui_list.Widget.Height = ui.TermHeight() - ui_log.Widget.Height - ui_tab.Widget.Height
@@ -641,6 +783,16 @@ func main() {
 		ui.NewCol(12, 0, ui_log.Widget))
 	ui.Body.Align()
 	ui.Render(ui.Body)
+
+	user := os.Getenv("V2EX_NAME")
+	pass := os.Getenv("V2EX_PASS")
+	if len(user) > 0 && len(pass) > 0 {
+		if err := login(user, pass); err != nil {
+			log.Println(err)
+		}
+	} else {
+		log.Println("$V2EX_NAME or $V2EX_PASS is empty")
+	}
 
 	switchState(StateTab)
 
