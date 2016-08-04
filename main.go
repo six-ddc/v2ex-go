@@ -5,7 +5,6 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	requests "github.com/levigross/grequests"
 	rw "github.com/mattn/go-runewidth"
-	"github.com/mitchellh/go-wordwrap"
 	ui "github.com/six-ddc/termui"
 	// "io/ioutil"
 	"errors"
@@ -18,6 +17,7 @@ import (
 	"os"
 	// "golang.org/x/net/publicsuffix"
 	// "encoding/json"
+	"bytes"
 	"strconv"
 	"strings"
 	"time"
@@ -393,7 +393,7 @@ type UITopicList struct {
 }
 
 func NewTopicList() *UITopicList {
-	l := &UITopicList{Label: "Title [C-p]", Type: TopicTab}
+	l := &UITopicList{Label: "Topic [C-p]", Type: TopicTab}
 	l.ScrollList = *NewScrollList()
 	l.BorderLabel = l.Label
 	return l
@@ -763,6 +763,26 @@ func randID() []byte {
 	return ret
 }
 
+func WrapString(str string, limit int) string {
+	wid := 0
+	buf := bytes.NewBuffer([]byte{})
+	for _, ch := range str {
+		w := rw.RuneWidth(ch)
+		if ch == '\n' {
+			wid = 0
+		} else {
+			if wid+w > limit {
+				buf.WriteRune('\n')
+				wid = 0
+			} else {
+				wid += w
+			}
+		}
+		buf.WriteRune(ch)
+	}
+	return buf.String()
+}
+
 func handleKey(e ui.Event) {
 	switch CurrState {
 	case StateDefault:
@@ -833,26 +853,30 @@ func handleKey(e ui.Event) {
 
 					uiReply.Topic = uiTopic.AllTopicInfo[idx]
 					parseReply(uiReply.Topic.Url, &uiReply.Reply)
+					log.Println("InnerWidth", uiReply.InnerWidth())
 					items := []string{"\n"}
-					text := wordwrap.WrapString(uiReply.Topic.Title, uint(uiReply.InnerWidth())-1)
+					text := WrapString(uiReply.Topic.Title, uiReply.InnerWidth()-1)
 					items = append(items, strings.Split(text, "\n")...)
 					items = append(items, "\n")
-					items = append(items, strings.Repeat("=", uiReply.InnerWidth()-1))
+					if len(uiReply.Reply.Content) > 0 {
+						items = append(items, strings.Repeat("=", uiReply.InnerWidth()-1))
+					}
 					for i, content := range uiReply.Reply.Content {
-						text := wordwrap.WrapString(content, uint(uiReply.InnerWidth())-1)
+						text := WrapString(content, uiReply.InnerWidth()-1)
 						items = append(items, strings.Split(text, "\n")...)
 						if i != len(uiReply.Reply.Content)-1 {
 							items = append(items, strings.Repeat("-", uiReply.InnerWidth()-1))
-						} else {
-							items = append(items, strings.Repeat("=", uiReply.InnerWidth()-1))
-							items = append(items, "\n")
 						}
 					}
+					if len(uiReply.Reply.Content) > 0 {
+						items = append(items, strings.Repeat("=", uiReply.InnerWidth()-1))
+						items = append(items, "\n")
+					}
 					for _, rep := range uiReply.Reply.List {
-						floor := fmt.Sprintf("<%d>", rep.Floor)
-						replyStr := fmt.Sprintf("%s %s %s", floor, rep.Member, rep.Reply)
-						text := wordwrap.WrapString(replyStr, uint(uiReply.InnerWidth())-1)
-						text = fmt.Sprintf("[%s](fg-blue) [%s](fg-green) %s", floor, rep.Member, text[len(floor)+len(rep.Member):])
+						floor := fmt.Sprintf("<%d> ", rep.Floor)
+						replyStr := fmt.Sprintf("%s%s %s", floor, rep.Member, rep.Reply)
+						text := WrapString(replyStr, uiReply.InnerWidth()-1)
+						text = fmt.Sprintf("[%s](fg-blue) [%s](fg-green)%s", floor, rep.Member, text[len(floor)+len(rep.Member):])
 						items = append(items, strings.Split(text, "\n")...)
 						items = append(items, "\n")
 					}
@@ -1241,6 +1265,18 @@ func main() {
 			switchState(BodyStateTopic)
 		} else {
 			switchState(BodyStateReply)
+		}
+		ui.Render(ui.Body)
+	})
+	ui.Handle("/sys/kbd/C-i", func(ui.Event) {
+		if CurrBodyState == BodyStateTopic {
+			switchState(BodyStateReply)
+		}
+		ui.Render(ui.Body)
+	})
+	ui.Handle("/sys/kbd/C-o", func(ui.Event) {
+		if CurrBodyState == BodyStateReply {
+			switchState(BodyStateTopic)
 		}
 		ui.Render(ui.Body)
 	})
