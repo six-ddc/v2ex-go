@@ -833,24 +833,26 @@ func handleKey(e ui.Event) {
 
 					uiReply.Topic = uiTopic.AllTopicInfo[idx]
 					parseReply(uiReply.Topic.Url, &uiReply.Reply)
-					items := []string{}
-					text := wordwrap.WrapString(uiReply.Topic.Title, uint(uiReply.InnerWidth()))
+					items := []string{"\n"}
+					text := wordwrap.WrapString(uiReply.Topic.Title, uint(uiReply.InnerWidth())-1)
 					items = append(items, strings.Split(text, "\n")...)
+					items = append(items, "\n")
 					items = append(items, strings.Repeat("=", uiReply.InnerWidth()-1))
 					for i, content := range uiReply.Reply.Content {
-						text := wordwrap.WrapString(content, uint(uiReply.InnerWidth()))
+						text := wordwrap.WrapString(content, uint(uiReply.InnerWidth())-1)
 						items = append(items, strings.Split(text, "\n")...)
 						if i != len(uiReply.Reply.Content)-1 {
 							items = append(items, strings.Repeat("-", uiReply.InnerWidth()-1))
 						} else {
 							items = append(items, strings.Repeat("=", uiReply.InnerWidth()-1))
+							items = append(items, "\n")
 						}
 					}
 					for _, rep := range uiReply.Reply.List {
 						floor := fmt.Sprintf("<%d>", rep.Floor)
-						replyStr := fmt.Sprintf("%s %s", floor, rep.Reply)
-						text := wordwrap.WrapString(replyStr, uint(uiReply.InnerWidth()))
-						text = fmt.Sprintf("[%s](fg-green)%s", floor, text[len(floor):])
+						replyStr := fmt.Sprintf("%s %s %s", floor, rep.Member, rep.Reply)
+						text := wordwrap.WrapString(replyStr, uint(uiReply.InnerWidth())-1)
+						text = fmt.Sprintf("[%s](fg-blue) [%s](fg-green) %s", floor, rep.Member, text[len(floor)+len(rep.Member):])
 						items = append(items, strings.Split(text, "\n")...)
 						items = append(items, "\n")
 					}
@@ -975,7 +977,6 @@ func parseReply(url string, reply *ReplyList) error {
 			}
 			reply.Content = append(reply.Content, strings.Join(contentList, "\n\n"))
 		} else {
-			log.Println("+++")
 			cnode := sel.Nodes[0].FirstChild
 			for cnode != nil {
 				if cnode.Type == html.TextNode {
@@ -1236,19 +1237,27 @@ func main() {
 		}
 	})
 	ui.Handle("/sys/kbd/C-p", func(ui.Event) {
-		if CurrBodyState != BodyStateReply {
-			switchState(BodyStateReply)
-		} else {
+		if CurrBodyState == BodyStateReply {
 			switchState(BodyStateTopic)
+		} else {
+			switchState(BodyStateReply)
 		}
 		ui.Render(ui.Body)
 	})
 	ui.Handle("/sys/kbd", handleKey)
 	ui.Handle("/sys/kbd/C-l", func(e ui.Event) {
-		if uiTopic.Height == ui.TermHeight()-uiTab.Height {
-			uiTopic.Height = ui.TermHeight() - uiLog.Height - uiTab.Height
+		if CurrBodyState == BodyStateReply {
+			if uiReply.Height == ui.TermHeight()-uiTab.Height {
+				uiReply.Height = ui.TermHeight() - uiLog.Height - uiTab.Height
+			} else {
+				uiReply.Height = ui.TermHeight() - uiTab.Height
+			}
 		} else {
-			uiTopic.Height = ui.TermHeight() - uiTab.Height
+			if uiTopic.Height == ui.TermHeight()-uiTab.Height {
+				uiTopic.Height = ui.TermHeight() - uiLog.Height - uiTab.Height
+			} else {
+				uiTopic.Height = ui.TermHeight() - uiTab.Height
+			}
 		}
 		ui.Body.Align()
 		ui.Render(ui.Body)
