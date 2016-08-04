@@ -5,6 +5,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	requests "github.com/levigross/grequests"
 	rw "github.com/mattn/go-runewidth"
+	"github.com/mitchellh/go-wordwrap"
 	ui "github.com/six-ddc/termui"
 	// "io/ioutil"
 	"errors"
@@ -23,14 +24,20 @@ import (
 )
 
 var (
-	uiTopic *UITopicList
-	uiLog   *UILog
 	uiTab   *UITab
+	uiTopic *UITopicList
+	uiReply *UIReplyList
+	uiLog   *UILog
+	uiUser  *UIUser
+
+	TopicRows *ui.Row
+	ReplyRows *ui.Row
 
 	Session *requests.Session
 
-	LastCtrlW int64
-	CurrState State
+	LastCtrlW     int64
+	CurrState     State
+	CurrBodyState State
 
 	ShortKeys  []byte
 	MatchList  []int
@@ -42,13 +49,18 @@ type State int
 const (
 	StateDefault State = iota
 	StateTab
-	StateTopic
+	StateBody
 	StateMax
+)
+
+const (
+	BodyStateTopic State = StateMax + 1
+	BodyStateReply State = StateMax + 2
 )
 
 type UserInfo struct {
 	Name   string
-	Notify int
+	Notify string
 	Silver int
 	Bronze int
 }
@@ -62,6 +74,8 @@ type ReplyInfo struct {
 }
 
 type ReplyList struct {
+	Title    string
+	Url      string
 	Content  []string
 	Lz       string
 	PostTime string
@@ -87,38 +101,174 @@ const (
 	TopicNode
 )
 
-type UITopicList struct {
-	Tab           *UITab
-	Widget        *ui.List
-	Label         string
-	Name          string
-	Type          TopicType
-	AllTopicItems []string
-	TopicFirst    int
-	AllTopicInfo  []TopicInfo
+type ScrollList struct {
+	ui.List
+	AllItems []string
+	Index    int
 }
 
-var userInfo UserInfo
+func NewScrollList() *ScrollList {
+	s := &ScrollList{List: *ui.NewList()}
+	return s
+}
+
+func (l *ScrollList) SetItem(i int, item string) {
+	l.Items[i] = item
+}
+
+func (l *ScrollList) SetAllItems(items []string, updateLastList bool) {
+	if updateLastList {
+		l.AllItems = items
+	}
+	sz := l.InnerHeight()
+	if len(items) < sz {
+		sz = len(items)
+	}
+	l.Items = make([]string, sz)
+	copy(l.Items, items) // 复制长度以较小的slice为准
+	l.ResetBgColor()
+}
+
+func (l *ScrollList) SetBgColor(i int, color ui.Attribute) {
+	if len(l.ItemBg) != len(l.Items) {
+		l.ResetBgColor()
+	}
+	l.ItemBg[i] = color
+}
+
+func (l *ScrollList) Highlight(b bool) {
+	if b {
+		l.BorderFg = ui.ColorRed
+	} else {
+		l.BorderFg = ui.ColorDefault
+	}
+}
+
+func (l *ScrollList) ResetBgColor() {
+	l.ItemBg = make([]ui.Attribute, len(l.Items))
+	for i, _ := range l.ItemBg {
+		l.ItemBg[i] = ui.ThemeAttr("list.item.bg")
+	}
+}
+
+func (l *ScrollList) ScrollDown() {
+	sz := len(l.AllItems)
+	screen_heigth := l.InnerHeight()
+	if sz > screen_heigth+l.Index {
+		l.ResetBgColor()
+		l.Index++
+		l.SetAllItems(l.AllItems[l.Index:], false)
+		ui.Render(l)
+	}
+}
+
+func (l *ScrollList) PageDown() {
+	sz := len(l.AllItems)
+	screen_heigth := l.InnerHeight()
+	if sz < screen_heigth {
+		return
+	}
+	index := l.Index + screen_heigth
+	if index > sz-screen_heigth {
+		index = sz - screen_heigth
+		if index == l.Index {
+			return
+		}
+	}
+	l.Index = index
+	l.SetAllItems(l.AllItems[l.Index:], false)
+	ui.Render(l)
+}
+
+func (l *ScrollList) PageUp() {
+	screen_heigth := l.InnerHeight()
+	index := l.Index - screen_heigth
+	if index < 0 {
+		index = 0
+		if index == l.Index {
+			return
+		}
+	}
+	l.Index = index
+	l.SetAllItems(l.AllItems[l.Index:], false)
+	ui.Render(l)
+}
+
+func (l *ScrollList) ScrollUp() {
+	if l.Index > 0 {
+		l.ResetBgColor()
+		l.Index--
+		l.SetAllItems(l.AllItems[l.Index:], false)
+		ui.Render(l)
+	}
+}
 
 var userAgent string = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/52.0.2743.82 Safari/537.36"
 
 type UILog struct {
-	Widget *ui.List
-	Label  string
-	Index  int
+	ui.List
+	Label string
+	Index int
 }
 
 func NewLog() *UILog {
 	l := &UILog{Index: 0, Label: "Log [C-l]"}
-	l.Widget = ui.NewList()
-	l.Widget.Height = 5
-	l.Widget.BorderLabel = l.Label
-	l.Widget.Items = make([]string, l.Widget.Height-2)
+	l.List = *ui.NewList()
+	l.Height = 5
+	l.BorderLabel = l.Label
+	l.Items = make([]string, l.Height-2)
 	return l
 }
 
+func (l *UILog) Write(p []byte) (n int, err error) {
+	str := fmt.Sprintf("[%d] %s", uiLog.Index+1, p)
+	if uiLog.Items[len(uiLog.Items)-1] != "" {
+		i := 0
+		for ; i < len(uiLog.Items)-1; i++ {
+			uiLog.Items[i] = uiLog.Items[i+1]
+		}
+		uiLog.Items[i] = str
+	} else {
+		for i, item := range uiLog.Items {
+			if item == "" {
+				uiLog.Items[i] = str
+				break
+			}
+		}
+	}
+	uiLog.Index++
+	ui.Render(l)
+	return len(p), nil
+}
+
+type UIUser struct {
+	ui.List
+	User *UserInfo
+}
+
+func NewUser() *UIUser {
+	u := &UIUser{User: &UserInfo{}}
+	u.List = *ui.NewList()
+	u.Height = 5
+	u.Items = make([]string, u.Height-2)
+	return u
+}
+
+func (u *UIUser) Fresh() {
+	if len(u.User.Name) > 0 {
+		u.Items[0] = fmt.Sprintf("[%s](fg-green)", u.User.Name)
+		balance := fmt.Sprintf("%d/%d", u.User.Silver, u.User.Bronze)
+		space_width := u.InnerWidth() - 1 - rw.StringWidth(u.User.Notify) - rw.StringWidth(balance)
+		if space_width > 0 {
+			u.Items[2] = fmt.Sprintf("%s%s%s", u.User.Notify, strings.Repeat(" ", space_width), balance)
+		} else {
+			u.Items[2] = fmt.Sprintf("%d %s", u.User.Notify, balance)
+		}
+	}
+}
+
 type UITab struct {
-	Widget       *ui.List
+	ui.List
 	Label        string
 	NameList     [][]string
 	ChildList    [][][]string
@@ -132,19 +282,19 @@ func NewTab() *UITab {
 		{"技术", "创意", "好玩", "Apple", "酷工作", "交易", "城市", "问与答", "最热", "全部", "R2", "节点", "关注"},
 		{"tech", "creative", "play", "apple", "jobs", "deals", "city", "qna", "hot", "all", "r2", "nodes", "members"}}
 	t.ChildList = make([][][]string, len(t.NameList[0]))
-	t.Widget = ui.NewList()
-	t.Widget.BorderLabel = t.Label
-	t.Widget.Height = 2 + 2
-	t.Widget.Items = make([]string, 2)
+	t.List = *ui.NewList()
+	t.BorderLabel = t.Label
+	t.Height = 2 + 2
+	t.Items = make([]string, 2)
 	t.ResetTabList()
 	return t
 }
 
 func (t *UITab) Highlight(b bool) {
 	if b {
-		t.Widget.BorderFg = ui.ColorRed
+		t.BorderFg = ui.ColorRed
 	} else {
-		t.Widget.BorderFg = ui.ColorDefault
+		t.BorderFg = ui.ColorDefault
 	}
 }
 
@@ -157,10 +307,10 @@ func (t *UITab) ResetTabList() {
 			strList = append(strList, names)
 		}
 	}
-	t.Widget.Items[0] = strings.Join(strList, " ")
+	t.Items[0] = strings.Join(strList, " ")
 	childList := (t.ChildList)[t.CurrTab]
 	if len(childList) == 0 {
-		t.Widget.Items[1] = ""
+		t.Items[1] = ""
 		return
 	}
 	strList = strList[:0]
@@ -171,7 +321,7 @@ func (t *UITab) ResetTabList() {
 			strList = append(strList, names)
 		}
 	}
-	t.Widget.Items[1] = strings.Join(strList, " ")
+	t.Items[1] = strings.Join(strList, " ")
 }
 
 func (t *UITab) UpdateLabel() {
@@ -179,7 +329,7 @@ func (t *UITab) UpdateLabel() {
 	if len(ShortKeys) > 0 {
 		str = fmt.Sprintf("%s (%s)", str, ShortKeys)
 	}
-	t.Widget.BorderLabel = str
+	t.BorderLabel = str
 }
 
 func (t *UITab) GetTabNode() (cate string, node string) {
@@ -211,7 +361,7 @@ func (t *UITab) MatchTab() {
 			strList = append(strList, fmt.Sprintf("%s<%s>", t.NameList[0][i], names))
 		}
 	}
-	t.Widget.Items[0] = strings.Join(strList, " ")
+	t.Items[0] = strings.Join(strList, " ")
 	childList := (t.ChildList)[t.CurrTab]
 	if len(childList) == 0 {
 		return
@@ -231,57 +381,22 @@ func (t *UITab) MatchTab() {
 			strList = append(strList, fmt.Sprintf("%s<%s>", childList[0][i], names))
 		}
 	}
-	t.Widget.Items[1] = strings.Join(strList, " ")
+	t.Items[1] = strings.Join(strList, " ")
 }
 
-func NewTopicList(t *UITab) *UITopicList {
-	l := &UITopicList{Tab: t, Label: "Title [C-p]", TopicFirst: 0, Type: TopicTab}
-	l.Widget = ui.NewList()
-	l.Widget.BorderLabel = l.Label
+type UITopicList struct {
+	ScrollList
+	Label        string
+	Name         string
+	Type         TopicType
+	AllTopicInfo []TopicInfo
+}
+
+func NewTopicList() *UITopicList {
+	l := &UITopicList{Label: "Title [C-p]", Type: TopicTab}
+	l.ScrollList = *NewScrollList()
+	l.BorderLabel = l.Label
 	return l
-}
-
-func (l *UITopicList) Highlight(b bool) {
-	if b {
-		l.Widget.BorderFg = ui.ColorRed
-	} else {
-		l.Widget.BorderFg = ui.ColorDefault
-	}
-}
-
-func (l *UITopicList) Height() int {
-	return l.Widget.Height - 2
-}
-
-func (l *UITopicList) SetItem(i int, item string) {
-	l.Widget.Items[i] = item
-}
-
-func (l *UITopicList) SetBgColor(i int, color ui.Attribute) {
-	if len(l.Widget.ItemBg) != len(l.Widget.Items) {
-		l.ResetBgColor()
-	}
-	l.Widget.ItemBg[i] = color
-}
-
-func (l *UITopicList) SetItems(items []string, updateLastList bool) {
-	if updateLastList {
-		l.AllTopicItems = items
-	}
-	sz := l.Height()
-	if len(items) < sz {
-		sz = len(items)
-	}
-	l.Widget.Items = make([]string, sz)
-	copy(l.Widget.Items, items) // 复制长度以较小的slice为准
-	l.ResetBgColor()
-}
-
-func (l *UITopicList) ResetBgColor() {
-	l.Widget.ItemBg = make([]ui.Attribute, len(l.Widget.Items))
-	for i, _ := range l.Widget.ItemBg {
-		l.Widget.ItemBg[i] = ui.ThemeAttr("list.item.bg")
-	}
 }
 
 func (l *UITopicList) UpdateLabel() {
@@ -292,16 +407,16 @@ func (l *UITopicList) UpdateLabel() {
 	if len(ShortKeys) > 0 {
 		str = fmt.Sprintf("%s (%s)", str, ShortKeys)
 	}
-	l.Widget.BorderLabel = str
+	l.BorderLabel = str
 }
 
 func (l *UITopicList) MatchTopic() {
 	count := 0
 	MatchList = MatchList[:0]
 	l.ResetBgColor()
-	log.Println("+", len(l.Widget.Items), len(l.AllTopicItems), l.TopicFirst)
-	for i := 0; i < len(l.Widget.Items); i++ {
-		item := l.AllTopicItems[i+l.TopicFirst]
+	log.Println("+", len(l.Items), len(l.AllItems), l.Index)
+	for i := 0; i < len(l.Items); i++ {
+		item := l.AllItems[i+l.Index]
 		match_str := []byte(item)[:10]
 		str := matchKey(match_str, ShortKeys)
 		if str != string(match_str) {
@@ -319,14 +434,13 @@ func (l *UITopicList) MatchTopic() {
 	}
 }
 
-func (l *UITopicList) Fresh() {
-	l.TopicFirst = 0
-	cate, node := l.Tab.GetTabNode()
+func (l *UITopicList) Fresh(cate, node string) {
+	l.Index = 0
 	log.Println(cate, node)
 	resetMatch()
 	l.Name = "..."
 	l.UpdateLabel()
-	ui.Render(ui.Body)
+	ui.Render(l)
 	if len(node) > 0 {
 		l.Name = node
 		l.Type = TopicNode
@@ -363,16 +477,17 @@ func (l *UITopicList) DrawTopic() {
 			}
 		}
 		suffix_width := rw.StringWidth(suffix) - rw.StringWidth("[](fg-bold,fg-blue)[](fg-green)")
-		space_width := l.Widget.InnerWidth() - 1 - (prefix_width + suffix_width + title_witth)
+		space_width := l.InnerWidth() - 1 - (prefix_width + suffix_width + title_witth)
 		if space_width < 0 {
-			trim_width := l.Widget.InnerWidth() - 1 - prefix_width - suffix_width
+			trim_width := l.InnerWidth() - 1 - prefix_width - suffix_width
 			title_rune := []rune(title)
 			w := 0
+			ellip_widh := rw.StringWidth("…")
 			for i, ch := range title_rune {
 				w += rw.RuneWidth(ch)
-				if w > trim_width-3 {
+				if w > trim_width-ellip_widh {
 					if i > 0 {
-						title = string(title_rune[:i]) + "..."
+						title = string(title_rune[:i]) + "…"
 					} else {
 						title = ""
 					}
@@ -383,80 +498,32 @@ func (l *UITopicList) DrawTopic() {
 		}
 		lst[i] = fmt.Sprintf("%s%s%s%s", prefix, title, strings.Repeat(" ", space_width), suffix)
 	}
-	l.SetItems(lst, true)
+	l.SetAllItems(lst, true)
 }
 
-func (l *UITopicList) ScrollDown() {
-	sz := len(l.AllTopicItems)
-	screen_heigth := l.Height()
-	if sz > screen_heigth+l.TopicFirst {
-		l.ResetBgColor()
-		l.TopicFirst++
-		l.SetItems(l.AllTopicItems[l.TopicFirst:], false)
-		ui.Render(ui.Body)
-	}
+type UIReplyList struct {
+	ScrollList
+	Topic TopicInfo
+	Reply ReplyList
+	Label string
 }
 
-func (l *UITopicList) PageDown() {
-	sz := len(l.AllTopicItems)
-	screen_heigth := l.Height()
-	if sz < screen_heigth {
-		return
+func NewReplyList() *UIReplyList {
+	r := &UIReplyList{ScrollList: *NewScrollList(), Label: "Reply [C-p]"}
+	return r
+}
+
+func (l *UIReplyList) UpdateLabel() {
+	str := l.Label
+	if len(l.Reply.Url) > 0 {
+		str = fmt.Sprintf("%s (%s)", str, l.Reply.Url)
 	}
-	index := l.TopicFirst + screen_heigth
-	if index > sz-screen_heigth {
-		index = sz - screen_heigth
-		if index == l.TopicFirst {
-			return
+	/*
+		if len(ShortKeys) > 0 {
+			str = fmt.Sprintf("%s (%s)", str, ShortKeys)
 		}
-	}
-	l.TopicFirst = index
-	l.SetItems(l.AllTopicItems[l.TopicFirst:], false)
-	ui.Render(ui.Body)
-}
-
-func (l *UITopicList) PageUp() {
-	screen_heigth := l.Height()
-	index := l.TopicFirst - screen_heigth
-	if index < 0 {
-		index = 0
-		if index == l.TopicFirst {
-			return
-		}
-	}
-	l.TopicFirst = index
-	l.SetItems(l.AllTopicItems[l.TopicFirst:], false)
-	ui.Render(ui.Body)
-}
-
-func (l *UITopicList) ScrollUp() {
-	if l.TopicFirst > 0 {
-		l.ResetBgColor()
-		l.TopicFirst--
-		l.SetItems(l.AllTopicItems[l.TopicFirst:], false)
-		ui.Render(ui.Body)
-	}
-}
-
-func (l *UILog) Write(p []byte) (n int, err error) {
-	str := fmt.Sprintf("[%d] %s", uiLog.Index+1, p)
-	if uiLog.Widget.Items[len(uiLog.Widget.Items)-1] != "" {
-		i := 0
-		for ; i < len(uiLog.Widget.Items)-1; i++ {
-			uiLog.Widget.Items[i] = uiLog.Widget.Items[i+1]
-		}
-		uiLog.Widget.Items[i] = str
-	} else {
-		for i, item := range uiLog.Widget.Items {
-			if item == "" {
-				uiLog.Widget.Items[i] = str
-				break
-			}
-		}
-	}
-	uiLog.Index++
-	ui.Render(ui.Body)
-	return len(p), nil
+	*/
+	l.BorderLabel = str
 }
 
 func resetMatch() {
@@ -466,15 +533,34 @@ func resetMatch() {
 }
 
 func switchState(st State) {
+	log.Println(st, CurrState, CurrBodyState)
 	resetMatch()
+	if st == BodyStateReply && CurrBodyState != BodyStateReply {
+		ui.Body.Rows[1] = ReplyRows
+		ui.Body.Align()
+		ui.Render(ui.Body)
+		st = StateBody
+		CurrBodyState = BodyStateReply
+	} else if st == BodyStateTopic && CurrBodyState != BodyStateTopic {
+		ui.Body.Rows[1] = TopicRows
+		ui.Body.Align()
+		ui.Render(ui.Body)
+		st = StateBody
+		CurrBodyState = BodyStateTopic
+	}
 	switch st {
 	case StateDefault:
 		uiTab.ResetTabList()
 		uiTab.Highlight(false)
 		uiTab.UpdateLabel()
 
-		uiTopic.Highlight(false)
-		uiTopic.UpdateLabel()
+		if CurrBodyState == BodyStateTopic {
+			uiTopic.Highlight(false)
+			uiTopic.UpdateLabel()
+		} else {
+			uiReply.Highlight(false)
+			uiReply.UpdateLabel()
+		}
 
 		CurrState = StateDefault
 	case StateTab:
@@ -482,19 +568,29 @@ func switchState(st State) {
 		uiTab.Highlight(true)
 		uiTab.UpdateLabel()
 
-		uiTopic.Highlight(false)
-		uiTopic.UpdateLabel()
+		if CurrBodyState == BodyStateTopic {
+			uiTopic.Highlight(false)
+			uiTopic.UpdateLabel()
+		} else {
+			uiReply.Highlight(false)
+			uiReply.UpdateLabel()
+		}
 
 		CurrState = StateTab
-	case StateTopic:
+	case StateBody:
 		uiTab.ResetTabList()
 		uiTab.Highlight(false)
 		uiTab.UpdateLabel()
 
-		uiTopic.Highlight(true)
-		uiTopic.UpdateLabel()
+		if CurrBodyState == BodyStateTopic {
+			uiTopic.Highlight(true)
+			uiTopic.UpdateLabel()
+		} else {
+			uiReply.Highlight(true)
+			uiReply.UpdateLabel()
+		}
 
-		CurrState = StateTopic
+		CurrState = StateBody
 	}
 }
 
@@ -541,28 +637,34 @@ func parseTopicByTab(tab string) (ret []TopicInfo) {
 		return
 	}
 
-	log.Println(url, "status_code", resp.StatusCode)
+	defer log.Println(url, "status_code", resp.StatusCode)
 	doc, err := goquery.NewDocumentFromResponse(resp.RawResponse)
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	userInfo.Name = strings.TrimSpace(doc.Find("span.bigger a").Text())
+	uiUser.User.Name = strings.TrimSpace(doc.Find("span.bigger a").Text())
+	doc.Find("a.fade").Each(func(i int, s *goquery.Selection) {
+		if v, has := s.Attr("href"); has && v == "/notifications" {
+			uiUser.User.Notify = s.Text()
+		}
+	})
 	sliverStr := doc.Find("a.balance_area").Text()
 	sliverLst := strings.Split(sliverStr, " ")
 	setSli := false
 	for _, sli := range sliverLst {
 		if len(sli) > 0 {
 			if !setSli {
-				userInfo.Silver, _ = strconv.Atoi(sli)
+				uiUser.User.Silver, _ = strconv.Atoi(sli)
 				setSli = true
 			} else {
-				userInfo.Bronze, _ = strconv.Atoi(sli)
+				uiUser.User.Bronze, _ = strconv.Atoi(sli)
 				break
 			}
 		}
 	}
-	log.Println("UserInfo", userInfo)
+	uiUser.Fresh()
+	log.Println("UserInfo", uiUser.User)
 	childList := [][]string{{}, {}}
 	doc.Find("div.box div.cell").Each(func(i int, s *goquery.Selection) {
 		if s.Next().HasClass("cell item") && s.Prev().HasClass("inner") {
@@ -614,7 +716,7 @@ func parseTopicByNode(node string) (ret []TopicInfo) {
 		log.Println(err)
 		return
 	}
-	log.Println(url, "status_code", resp.StatusCode)
+	defer log.Println(url, "status_code", resp.StatusCode)
 	doc, err := goquery.NewDocumentFromReader(resp)
 	if err != nil {
 		log.Println(err)
@@ -665,7 +767,7 @@ func handleKey(e ui.Event) {
 	switch CurrState {
 	case StateDefault:
 		log.Println(e.Data.(ui.EvtKbd).KeyStr, "default")
-	case StateTab, StateTopic:
+	case StateTab, StateBody:
 		key := e.Data.(ui.EvtKbd).KeyStr
 		if len(key) == 1 && ((key[0] >= '0' && key[0] <= '9') || (key[0] >= 'a' && key[0] <= 'z') || (key[0] >= 'A' && key[0] <= 'Z')) {
 			MatchIndex = 0
@@ -674,7 +776,7 @@ func handleKey(e ui.Event) {
 			if CurrState == StateTab {
 				uiTab.MatchTab()
 				uiTab.UpdateLabel()
-			} else if CurrState == StateTopic {
+			} else if CurrState == StateBody {
 				uiTopic.MatchTopic()
 				uiTopic.UpdateLabel()
 			}
@@ -685,7 +787,7 @@ func handleKey(e ui.Event) {
 			if CurrState == StateTab {
 				uiTab.MatchTab()
 				uiTab.UpdateLabel()
-			} else if CurrState == StateTopic {
+			} else if CurrState == StateBody {
 				uiTopic.MatchTopic()
 				uiTopic.UpdateLabel()
 			}
@@ -701,6 +803,10 @@ func handleKey(e ui.Event) {
 		}
 		if key == "<enter>" {
 			if CurrState == StateTab {
+				ui.Body.Rows[1] = TopicRows
+				ui.Body.Align()
+				ui.Render(ui.Body)
+
 				uiTab.CurrChildTab = -1
 				if len(MatchList) > 0 {
 					tab := MatchList[MatchIndex]
@@ -713,28 +819,69 @@ func handleKey(e ui.Event) {
 				} else {
 					uiTab.CurrTab = 0
 				}
-				uiTopic.Fresh()
-				switchState(StateTopic)
-			} else if CurrState == StateTopic {
-				if len(MatchList) > 0 {
+				uiTopic.Fresh(uiTab.GetTabNode())
+				switchState(BodyStateTopic)
+			} else if CurrState == StateBody {
+				if len(MatchList) == 0 {
+					return
+				}
+				if CurrBodyState == BodyStateTopic {
 					idx := MatchList[MatchIndex]
-					idx += uiTopic.TopicFirst
-					log.Println(uiTopic.AllTopicInfo[idx].Url)
+					idx += uiTopic.Index
+
+					resetMatch()
+
+					uiReply.Topic = uiTopic.AllTopicInfo[idx]
+					parseReply(uiReply.Topic.Url, &uiReply.Reply)
+					items := []string{}
+					text := wordwrap.WrapString(uiReply.Topic.Title, uint(uiReply.InnerWidth()))
+					items = append(items, strings.Split(text, "\n")...)
+					items = append(items, strings.Repeat("=", uiReply.InnerWidth()-1))
+					for i, content := range uiReply.Reply.Content {
+						text := wordwrap.WrapString(content, uint(uiReply.InnerWidth()))
+						items = append(items, strings.Split(text, "\n")...)
+						if i != len(uiReply.Reply.Content)-1 {
+							items = append(items, strings.Repeat("-", uiReply.InnerWidth()-1))
+						} else {
+							items = append(items, strings.Repeat("=", uiReply.InnerWidth()-1))
+						}
+					}
+					for _, rep := range uiReply.Reply.List {
+						floor := fmt.Sprintf("<%d>", rep.Floor)
+						replyStr := fmt.Sprintf("%s %s", floor, rep.Reply)
+						text := wordwrap.WrapString(replyStr, uint(uiReply.InnerWidth()))
+						text = fmt.Sprintf("[%s](fg-green)%s", floor, text[len(floor):])
+						items = append(items, strings.Split(text, "\n")...)
+						items = append(items, "\n")
+					}
+					log.Println(strconv.Itoa(uiReply.Height))
+					uiReply.SetAllItems(items, true)
+
+					switchState(BodyStateReply)
 				}
 			}
 		}
+		ui.Render(ui.Body)
 	}
-	ui.Render(ui.Body)
 }
 
 func parseReply(url string, reply *ReplyList) error {
+	*reply = ReplyList{}
 	resp, err := Session.Get(url, &requests.RequestOptions{
 		UserAgent: userAgent,
 	})
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != 200 {
+		return errors.New(fmt.Sprintf("resp.StatusCode=%d", resp.StatusCode))
+	}
+	defer log.Println(url, "status_code", resp.StatusCode)
 	doc, err := goquery.NewDocumentFromReader(resp)
 	if err != nil {
 		return err
 	}
+	reply.Url = url
 	doc.Find("div.topic_content").Each(func(i int, sel *goquery.Selection) {
 		selMD := sel.Find("div.markdown_body")
 		contentList := []string{}
@@ -743,16 +890,52 @@ func parseReply(url string, reply *ReplyList) error {
 			for _, node := range sel.Nodes {
 				if node.Type == html.ElementNode {
 					if node.Data == "p" {
-						if node.FirstChild != nil && node.FirstChild.Type == html.TextNode {
-							contentList = append(contentList, node.FirstChild.Data)
+						cnode := node.FirstChild
+						pList := []string{}
+						for cnode != nil {
+							if cnode.Type == html.TextNode {
+								pList = append(pList, cnode.Data)
+							} else if cnode.Type == html.ElementNode {
+								if cnode.Data == "a" {
+									var href, text string
+									for _, attr := range cnode.Attr {
+										if attr.Key == "href" {
+											href = attr.Val
+										}
+									}
+									if len(href) > 0 && cnode.FirstChild != nil {
+										text = cnode.FirstChild.Data
+									}
+									if href == text {
+										pList = append(pList, href)
+									} else {
+										pList = append(pList, fmt.Sprintf("<%s>(%s)", text, href))
+									}
+									pList = append(pList, text)
+								} else if cnode.Data == "img" {
+									for _, attr := range cnode.Attr {
+										if attr.Key == "src" {
+											pList = append(pList, attr.Val)
+										}
+									}
+								} else if cnode.Data == "strong" {
+									pList = append(pList, cnode.FirstChild.Data)
+								}
+							}
+							cnode = cnode.NextSibling
 						}
-					} else if node.Data == "ol" {
+						contentList = append(contentList, strings.Join(pList, ""))
+					} else if node.Data == "ol" || node.Data == "ul" {
 						cnode := node.FirstChild
 						idx := 1
 						olList := []string{}
 						for cnode != nil {
 							if cnode.Data == "li" {
-								olList = append(olList, fmt.Sprintf("%d. %s", idx, cnode.FirstChild.Data))
+								if node.Data == "ol" {
+									olList = append(olList, fmt.Sprintf("%d. %s", idx, cnode.FirstChild.Data))
+								} else {
+									olList = append(olList, fmt.Sprintf("* %s", cnode.FirstChild.Data))
+								}
 								idx++
 							}
 							cnode = cnode.NextSibling
@@ -764,11 +947,35 @@ func parseReply(url string, reply *ReplyList) error {
 								contentList = append(contentList, attr.Val)
 							}
 						}
+					} else if node.Data[0] == 'h' && (node.Data[1] >= '1' && node.Data[1] <= '6') {
+						var hstr string
+						if node.FirstChild.Type == html.TextNode {
+							hstr = node.FirstChild.Data
+						} else if node.FirstChild.Type == html.ElementNode {
+							if node.FirstChild.Data == "a" {
+								var href, text string
+								for _, attr := range node.FirstChild.Attr {
+									if attr.Key == "href" {
+										href = attr.Val
+									}
+								}
+								if len(href) > 0 && node.FirstChild.FirstChild != nil {
+									text = node.FirstChild.FirstChild.Data
+								}
+								if href == text {
+									hstr = href
+								} else {
+									hstr = fmt.Sprintf("<%s>(%s)", text, href)
+								}
+							}
+						}
+						contentList = append(contentList, fmt.Sprintf("%s %s", strings.Repeat("#", int(node.Data[1]-'0')), hstr))
 					}
 				}
 			}
 			reply.Content = append(reply.Content, strings.Join(contentList, "\n\n"))
 		} else {
+			log.Println("+++")
 			cnode := sel.Nodes[0].FirstChild
 			for cnode != nil {
 				if cnode.Type == html.TextNode {
@@ -783,15 +990,13 @@ func parseReply(url string, reply *ReplyList) error {
 					for _, attr := range cnode.Attr {
 						if attr.Key == "href" {
 							contentList = append(contentList, attr.Val)
+							break
 						}
 					}
 				}
-
 				cnode = cnode.NextSibling
 			}
-
 			reply.Content = append(reply.Content, strings.Join(contentList, ""))
-			// reply.Content = append(reply.Content, sel.Text())
 		}
 	})
 
@@ -825,7 +1030,12 @@ func parseReply(url string, reply *ReplyList) error {
 				} else if cnode.Data == "a" {
 					for _, attr := range cnode.Attr {
 						if attr.Key == "href" {
-							contentList = append(contentList, attr.Val)
+							if strings.HasPrefix(attr.Val, "/member") {
+								contentList = append(contentList, cnode.FirstChild.Data)
+							} else {
+								contentList = append(contentList, attr.Val)
+							}
+							break
 						}
 					}
 				}
@@ -913,6 +1123,12 @@ func init() {
 		log.Panic(err)
 	}
 
+	uiTab = NewTab()
+	uiLog = NewLog()
+	uiUser = NewUser()
+	uiTopic = NewTopicList()
+	uiReply = NewReplyList()
+
 	Session = requests.NewSession(nil)
 }
 
@@ -920,17 +1136,18 @@ func main() {
 
 	defer ui.Close()
 
-	uiTab = NewTab()
+	uiTopic.Height = ui.TermHeight() - uiLog.Height - uiTab.Height
+	uiReply.Height = uiTopic.Height
 
-	uiLog = NewLog()
-
-	uiTopic = NewTopicList(uiTab)
-	uiTopic.Widget.Height = ui.TermHeight() - uiLog.Widget.Height - uiTab.Widget.Height
+	TopicRows = ui.NewCol(12, 0, uiTopic)
+	ReplyRows = ui.NewCol(12, 0, uiReply)
 
 	ui.Body.AddRows(
-		ui.NewCol(12, 0, uiTab.Widget),
-		ui.NewCol(12, 0, uiTopic.Widget),
-		ui.NewCol(12, 0, uiLog.Widget))
+		ui.NewCol(12, 0, uiTab),
+		TopicRows,
+		ui.NewRow(
+			ui.NewCol(9, 0, uiLog),
+			ui.NewCol(3, 0, uiUser)))
 	ui.Body.Align()
 	ui.Render(ui.Body)
 
@@ -939,14 +1156,19 @@ func main() {
 	user := os.Getenv("V2EX_NAME")
 	pass := os.Getenv("V2EX_PASS")
 	if len(user) > 0 && len(pass) > 0 {
-		if err := login(user, pass); err != nil {
-			log.Println(err)
-		}
+		/*
+			if err := login(user, pass); err != nil {
+				log.Println(err)
+			}
+		*/
 	} else {
 		log.Println("$V2EX_NAME or $V2EX_PASS is empty")
 	}
 
 	switchState(StateTab)
+	// 这里来回切换状态是为了在开始时候即对UIRow进行初始化(align, inner...)
+	switchState(BodyStateReply)
+	switchState(BodyStateTopic)
 
 	ui.Handle("/sys/kbd/C-q", func(ui.Event) {
 		ui.StopLoop()
@@ -978,45 +1200,63 @@ func main() {
 		ui.Render(ui.Body)
 	})
 	ui.Handle("/sys/kbd/C-r", func(ui.Event) {
-		if CurrState == StateTopic {
-			uiTopic.Fresh()
+		if CurrState == StateBody {
+			if CurrBodyState == BodyStateTopic {
+				uiTopic.Fresh(uiTab.GetTabNode())
+			}
 		}
 		ui.Render(ui.Body)
 	})
 	ui.Handle("/sys/kbd/C-f", func(ui.Event) {
-		uiTopic.PageDown()
+		if CurrBodyState == BodyStateReply {
+			uiReply.PageDown()
+		} else {
+			uiTopic.PageDown()
+		}
 	})
 	ui.Handle("/sys/kbd/C-b", func(ui.Event) {
-		uiTopic.PageUp()
+		if CurrBodyState == BodyStateReply {
+			uiReply.PageUp()
+		} else {
+			uiTopic.PageUp()
+		}
 	})
 	ui.Handle("/sys/kbd/C-e", func(ui.Event) {
-		uiTopic.ScrollDown()
+		if CurrBodyState == BodyStateReply {
+			uiReply.ScrollDown()
+		} else {
+			uiTopic.ScrollDown()
+		}
 	})
 	ui.Handle("/sys/kbd/C-y", func(ui.Event) {
-		uiTopic.ScrollUp()
-		ui.Render(ui.Body)
+		if CurrBodyState == BodyStateReply {
+			uiReply.ScrollUp()
+		} else {
+			uiTopic.ScrollUp()
+		}
 	})
 	ui.Handle("/sys/kbd/C-p", func(ui.Event) {
-		if CurrState != StateTopic {
-			switchState(StateTopic)
+		if CurrBodyState != BodyStateReply {
+			switchState(BodyStateReply)
 		} else {
-			switchState(StateDefault)
+			switchState(BodyStateTopic)
 		}
 		ui.Render(ui.Body)
 	})
 	ui.Handle("/sys/kbd", handleKey)
 	ui.Handle("/sys/kbd/C-l", func(e ui.Event) {
-		if uiTopic.Widget.Height == ui.TermHeight()-uiTab.Widget.Height {
-			uiTopic.Widget.Height = ui.TermHeight() - uiLog.Widget.Height - uiTab.Widget.Height
+		if uiTopic.Height == ui.TermHeight()-uiTab.Height {
+			uiTopic.Height = ui.TermHeight() - uiLog.Height - uiTab.Height
 		} else {
-			uiTopic.Widget.Height = ui.TermHeight() - uiTab.Widget.Height
+			uiTopic.Height = ui.TermHeight() - uiTab.Height
 		}
 		ui.Body.Align()
 		ui.Render(ui.Body)
 	})
 	ui.Handle("/sys/wnd/resize", func(e ui.Event) {
 		ui.Body.Width = ui.TermWidth()
-		uiTopic.Widget.Height = ui.TermHeight() - uiLog.Widget.Height - uiTab.Widget.Height
+		uiTopic.Height = ui.TermHeight() - uiLog.Height - uiTab.Height
+		uiReply.Height = uiTopic.Height
 		ui.Body.Align()
 		ui.Render(ui.Body)
 	})
@@ -1024,8 +1264,8 @@ func main() {
 	ui.Handle("/timer/1s", func(e ui.Event) {
 		if firstLoad {
 			firstLoad = false
-			uiTopic.Fresh()
-			switchState(StateTopic)
+			uiTopic.Fresh(uiTab.GetTabNode())
+			switchState(BodyStateTopic)
 			ui.Render(ui.Body)
 		}
 	})
