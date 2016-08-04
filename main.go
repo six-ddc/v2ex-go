@@ -69,8 +69,7 @@ type ReplyInfo struct {
 	Floor  int
 	Member string
 	Reply  string
-	Time   string
-	Up     string
+	Source string
 }
 
 type ReplyList struct {
@@ -516,7 +515,7 @@ func NewReplyList() *UIReplyList {
 func (l *UIReplyList) UpdateLabel() {
 	str := l.Label
 	if len(l.Reply.Url) > 0 {
-		str = fmt.Sprintf("%s (%s)", str, l.Reply.Url)
+		str = fmt.Sprintf("%s [%s](fg-cyan) (%s)", str, l.Reply.Lz, l.Reply.Url)
 	}
 	/*
 		if len(ShortKeys) > 0 {
@@ -873,10 +872,14 @@ func handleKey(e ui.Event) {
 						items = append(items, "\n")
 					}
 					for _, rep := range uiReply.Reply.List {
-						floor := fmt.Sprintf("<%d> ", rep.Floor)
-						replyStr := fmt.Sprintf("%s%s %s", floor, rep.Member, rep.Reply)
-						text := WrapString(replyStr, uiReply.InnerWidth()-1)
-						text = fmt.Sprintf("[%s](fg-blue) [%s](fg-green)%s", floor, rep.Member, text[len(floor)+len(rep.Member):])
+						source := strings.Replace(rep.Source, "♥", " [♥](fg-red)", 1)
+						if rep.Member == uiReply.Reply.Lz {
+							items = append(items, fmt.Sprintf("[%d](fg-blue) [%s](fg-cyan) %s", rep.Floor, rep.Member, source))
+						} else {
+							items = append(items, fmt.Sprintf("[%d](fg-blue) [%s](fg-green) %s", rep.Floor, rep.Member, source))
+						}
+						text := WrapString(rep.Reply, uiReply.InnerWidth()-1)
+						text = strings.Replace(text, "@"+uiReply.Reply.Lz, fmt.Sprintf("[@%s](fg-cyan)", uiReply.Reply.Lz), 1)
 						items = append(items, strings.Split(text, "\n")...)
 						items = append(items, "\n")
 					}
@@ -1069,8 +1072,7 @@ func parseReply(url string, reply *ReplyList) error {
 			info.Reply = strings.Join(contentList, "")
 			info.Floor, _ = strconv.Atoi(sel.Find("span.no").Text())
 			info.Member = sel.Find("a.dark").Text()
-			info.Time = sel.Find("span.fade.small").Text()
-			info.Up = sel.Find("span.small.fade").Text()
+			info.Source = sel.Find("span.fade.small").Text()
 			reply.List = append(reply.List, info)
 			// log.Println(info.Floor, info.Member, info.Time)
 		}
