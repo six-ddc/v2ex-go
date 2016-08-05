@@ -74,7 +74,6 @@ type ReplyInfo struct {
 
 type ReplyList struct {
 	Title    string
-	Url      string
 	Content  []string
 	Lz       string
 	PostTime string
@@ -115,17 +114,18 @@ func (l *ScrollList) SetItem(i int, item string) {
 	l.Items[i] = item
 }
 
-func (l *ScrollList) SetAllItems(items []string, updateLastList bool) {
-	if updateLastList {
-		l.AllItems = items
-	}
+func (l *ScrollList) SetAllItems(items []string) {
+	l.AllItems = items
 	sz := l.InnerHeight()
-	if len(items) < sz {
-		sz = len(items)
+	log.Println("sz", sz, "len(items)", len(items), "index", l.Index)
+	if len(items)-l.Index < sz {
+		sz = len(items) - l.Index
 	}
 	l.Items = make([]string, sz)
-	copy(l.Items, items) // 复制长度以较小的slice为准
+	// 显示index后面的部分
+	copy(l.Items, items[l.Index:]) // 复制长度以较小的slice为准
 	l.ResetBgColor()
+	ui.Render(l)
 }
 
 func (l *ScrollList) SetBgColor(i int, color ui.Attribute) {
@@ -133,6 +133,7 @@ func (l *ScrollList) SetBgColor(i int, color ui.Attribute) {
 		l.ResetBgColor()
 	}
 	l.ItemBg[i] = color
+	ui.Render(l)
 }
 
 func (l *ScrollList) Highlight(b bool) {
@@ -141,6 +142,7 @@ func (l *ScrollList) Highlight(b bool) {
 	} else {
 		l.BorderFg = ui.ColorDefault
 	}
+	ui.Render(l)
 }
 
 func (l *ScrollList) ResetBgColor() {
@@ -148,58 +150,62 @@ func (l *ScrollList) ResetBgColor() {
 	for i, _ := range l.ItemBg {
 		l.ItemBg[i] = ui.ThemeAttr("list.item.bg")
 	}
+	ui.Render(l)
 }
 
-func (l *ScrollList) ScrollDown() {
+func (l *ScrollList) ScrollDown() bool {
 	sz := len(l.AllItems)
 	screen_heigth := l.InnerHeight()
 	if sz > screen_heigth+l.Index {
 		l.ResetBgColor()
 		l.Index++
-		l.SetAllItems(l.AllItems[l.Index:], false)
+		l.SetAllItems(l.AllItems)
 		ui.Render(l)
+		return true
 	}
+	return false
 }
 
-func (l *ScrollList) PageDown() {
+func (l *ScrollList) PageDown() bool {
 	sz := len(l.AllItems)
 	screen_heigth := l.InnerHeight()
 	if sz < screen_heigth {
-		return
+		return false
 	}
 	index := l.Index + screen_heigth
-	if index > sz-screen_heigth {
-		index = sz - screen_heigth
-		if index == l.Index {
-			return
-		}
+	if index >= sz {
+		return false
 	}
 	l.Index = index
-	l.SetAllItems(l.AllItems[l.Index:], false)
+	l.SetAllItems(l.AllItems)
 	ui.Render(l)
+	return true
 }
 
-func (l *ScrollList) PageUp() {
+func (l *ScrollList) PageUp() bool {
+	if l.Index == 0 {
+		return false
+	}
 	screen_heigth := l.InnerHeight()
 	index := l.Index - screen_heigth
 	if index < 0 {
 		index = 0
-		if index == l.Index {
-			return
-		}
 	}
 	l.Index = index
-	l.SetAllItems(l.AllItems[l.Index:], false)
+	l.SetAllItems(l.AllItems)
 	ui.Render(l)
+	return true
 }
 
-func (l *ScrollList) ScrollUp() {
+func (l *ScrollList) ScrollUp() bool {
 	if l.Index > 0 {
 		l.ResetBgColor()
 		l.Index--
-		l.SetAllItems(l.AllItems[l.Index:], false)
+		l.SetAllItems(l.AllItems)
 		ui.Render(l)
+		return true
 	}
+	return false
 }
 
 var userAgent string = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/52.0.2743.82 Safari/537.36"
@@ -295,6 +301,7 @@ func (t *UITab) Highlight(b bool) {
 	} else {
 		t.BorderFg = ui.ColorDefault
 	}
+	ui.Render(t)
 }
 
 func (t *UITab) ResetTabList() {
@@ -321,6 +328,7 @@ func (t *UITab) ResetTabList() {
 		}
 	}
 	t.Items[1] = strings.Join(strList, " ")
+	ui.Render(t)
 }
 
 func (t *UITab) UpdateLabel() {
@@ -329,6 +337,7 @@ func (t *UITab) UpdateLabel() {
 		str = fmt.Sprintf("%s (%s)", str, ShortKeys)
 	}
 	t.BorderLabel = str
+	ui.Render(t)
 }
 
 func (t *UITab) GetTabNode() (cate string, node string) {
@@ -381,6 +390,7 @@ func (t *UITab) MatchTab() {
 		}
 	}
 	t.Items[1] = strings.Join(strList, " ")
+	ui.Render(t)
 }
 
 type UITopicList struct {
@@ -389,10 +399,11 @@ type UITopicList struct {
 	Name         string
 	Type         TopicType
 	AllTopicInfo []TopicInfo
+	Page         int
 }
 
 func NewTopicList() *UITopicList {
-	l := &UITopicList{Label: "Topic [C-p]", Type: TopicTab}
+	l := &UITopicList{Label: "Topic [C-p]", Type: TopicTab, Page: 1}
 	l.ScrollList = *NewScrollList()
 	l.BorderLabel = l.Label
 	return l
@@ -407,6 +418,7 @@ func (l *UITopicList) UpdateLabel() {
 		str = fmt.Sprintf("%s (%s)", str, ShortKeys)
 	}
 	l.BorderLabel = str
+	ui.Render(l)
 }
 
 func (l *UITopicList) MatchTopic() {
@@ -431,6 +443,7 @@ func (l *UITopicList) MatchTopic() {
 			l.SetItem(i, item)
 		}
 	}
+	ui.Render(l)
 }
 
 func (l *UITopicList) Fresh(cate, node string) {
@@ -443,7 +456,7 @@ func (l *UITopicList) Fresh(cate, node string) {
 	if len(node) > 0 {
 		l.Name = node
 		l.Type = TopicNode
-		l.AllTopicInfo = parseTopicByNode(l.Name)
+		l.AllTopicInfo = parseTopicByNode(l.Name, 1)
 	} else {
 		l.Name = cate
 		l.Type = TopicTab
@@ -451,6 +464,27 @@ func (l *UITopicList) Fresh(cate, node string) {
 	}
 	l.DrawTopic()
 	l.UpdateLabel()
+	ui.Render(l)
+}
+
+func (l *UITopicList) LoadNext() {
+	if l.Type == TopicTab {
+		// tab 不支持翻页
+		return
+	}
+	l.Page += 1
+	name := l.Name
+	log.Println(l.Name, l.Page)
+	resetMatch()
+	l.Name = "..."
+	l.UpdateLabel()
+	ui.Render(l)
+	l.Name = name
+	tpList := parseTopicByNode(l.Name, l.Page)
+	l.AllTopicInfo = append(l.AllTopicInfo, tpList...)
+	l.DrawTopic()
+	l.UpdateLabel()
+	ui.Render(l)
 }
 
 func (l *UITopicList) DrawTopic() {
@@ -497,12 +531,12 @@ func (l *UITopicList) DrawTopic() {
 		}
 		lst[i] = fmt.Sprintf("%s%s%s%s", prefix, title, strings.Repeat(" ", space_width), suffix)
 	}
-	l.SetAllItems(lst, true)
+	l.SetAllItems(lst)
 }
 
 type UIReplyList struct {
 	ScrollList
-	Topic TopicInfo
+	Topic *TopicInfo
 	Reply ReplyList
 	Label string
 }
@@ -514,8 +548,8 @@ func NewReplyList() *UIReplyList {
 
 func (l *UIReplyList) UpdateLabel() {
 	str := l.Label
-	if len(l.Reply.Url) > 0 {
-		str = fmt.Sprintf("%s [%s](fg-cyan) (%s)", str, l.Reply.Lz, l.Reply.Url)
+	if l.Topic != nil && len(l.Topic.Url) > 0 {
+		str = fmt.Sprintf("%s [%s](fg-cyan) (%s)", str, l.Reply.Lz, l.Topic.Url)
 	}
 	/*
 		if len(ShortKeys) > 0 {
@@ -523,6 +557,80 @@ func (l *UIReplyList) UpdateLabel() {
 		}
 	*/
 	l.BorderLabel = str
+	ui.Render(l)
+}
+
+func (l *UIReplyList) Fresh(topic *TopicInfo, addToHead bool) {
+	l.Index = 0
+	if topic != nil {
+		l.Topic = topic
+	}
+	if l.Topic == nil {
+		return
+	}
+	if addToHead { // 加载上一页的情况
+		var reply ReplyList
+		if parseReply(l.Topic.Url, &reply) != nil {
+			return
+		}
+		l.Reply.List = append(reply.List, l.Reply.List...)
+	} else {
+		if parseReply(l.Topic.Url, &l.Reply) != nil {
+			return
+		}
+	}
+	log.Println("addToHead", addToHead)
+	items := []string{"\n"}
+	text := WrapString(l.Topic.Title, l.InnerWidth()-1)
+	items = append(items, strings.Split(text, "\n")...)
+	items = append(items, "\n")
+	if len(l.Reply.Content) > 0 {
+		items = append(items, strings.Repeat("=", l.InnerWidth()-1))
+	}
+	for i, content := range l.Reply.Content {
+		text := WrapString(content, l.InnerWidth()-1)
+		items = append(items, strings.Split(text, "\n")...)
+		if i != len(l.Reply.Content)-1 {
+			items = append(items, strings.Repeat("-", l.InnerWidth()-1))
+		}
+	}
+	if len(l.Reply.Content) > 0 {
+		items = append(items, strings.Repeat("=", l.InnerWidth()-1))
+		items = append(items, "\n")
+	}
+	for i, rep := range l.Reply.List {
+		source := strings.Replace(rep.Source, "♥", " [♥](fg-red)", 1)
+		if rep.Member == l.Reply.Lz {
+			items = append(items, fmt.Sprintf("[%d](fg-blue) [%s](fg-cyan) %s", rep.Floor, rep.Member, source))
+		} else {
+			items = append(items, fmt.Sprintf("[%d](fg-blue) [%s](fg-green) %s", rep.Floor, rep.Member, source))
+		}
+		text := WrapString(rep.Reply, l.InnerWidth()-1)
+		text = strings.Replace(text, "@"+l.Reply.Lz, fmt.Sprintf("[@%s](fg-cyan)", l.Reply.Lz), 1)
+		items = append(items, strings.Split(text, "\n")...)
+		if i != len(l.Reply.List)-1 {
+			items = append(items, "\n")
+		}
+	}
+	l.SetAllItems(items)
+	ui.Render(l)
+}
+
+func (l *UIReplyList) LoadPrev() {
+	if len(l.Reply.List) == 0 || l.Reply.List[0].Floor/100 == 0 {
+		return
+	}
+	page := l.Reply.List[0].Floor / 100
+	idx := strings.Index(l.Topic.Url, "#reply")
+	if idx > -1 {
+		l.Topic.Url = l.Topic.Url[:idx]
+	}
+	url := fmt.Sprintf("%s?p=%d", l.Topic.Url, page)
+	l.Topic.Url = "..."
+	l.UpdateLabel()
+	l.Topic.Url = url
+	l.Fresh(l.Topic, true)
+	l.UpdateLabel()
 }
 
 func resetMatch() {
@@ -533,20 +641,24 @@ func resetMatch() {
 
 func switchState(st State) {
 	log.Println(st, CurrState, CurrBodyState)
-	resetMatch()
-	if st == BodyStateReply && CurrBodyState != BodyStateReply {
-		ui.Body.Rows[1] = ReplyRows
-		ui.Body.Align()
-		ui.Render(ui.Body)
+	if st == BodyStateReply {
+		if CurrBodyState != BodyStateReply {
+			ui.Body.Rows[1] = ReplyRows
+			ui.Body.Align()
+			ui.Render(ui.Body)
+			CurrBodyState = BodyStateReply
+		}
 		st = StateBody
-		CurrBodyState = BodyStateReply
-	} else if st == BodyStateTopic && CurrBodyState != BodyStateTopic {
-		ui.Body.Rows[1] = TopicRows
-		ui.Body.Align()
-		ui.Render(ui.Body)
+	} else if st == BodyStateTopic {
+		if CurrBodyState != BodyStateTopic {
+			ui.Body.Rows[1] = TopicRows
+			ui.Body.Align()
+			ui.Render(ui.Body)
+			CurrBodyState = BodyStateTopic
+		}
 		st = StateBody
-		CurrBodyState = BodyStateTopic
 	}
+	resetMatch()
 	switch st {
 	case StateDefault:
 		uiTab.ResetTabList()
@@ -635,8 +747,10 @@ func parseTopicByTab(tab string) (ret []TopicInfo) {
 		log.Println(err)
 		return
 	}
-
 	defer log.Println(url, "status_code", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		return
+	}
 	doc, err := goquery.NewDocumentFromResponse(resp.RawResponse)
 	if err != nil {
 		log.Println(err)
@@ -706,8 +820,13 @@ func parseTopicByTab(tab string) (ret []TopicInfo) {
 	return
 }
 
-func parseTopicByNode(node string) (ret []TopicInfo) {
-	url := fmt.Sprintf("https://www.v2ex.com/go/%s", node)
+func parseTopicByNode(node string, page int) (ret []TopicInfo) {
+	var url string
+	if page > 1 {
+		url = fmt.Sprintf("https://www.v2ex.com/go/%s?p=%d", node, page)
+	} else {
+		url = fmt.Sprintf("https://www.v2ex.com/go/%s", node)
+	}
 	resp, err := Session.Get(url, &requests.RequestOptions{
 		UserAgent: userAgent,
 	})
@@ -716,6 +835,9 @@ func parseTopicByNode(node string) (ret []TopicInfo) {
 		return
 	}
 	defer log.Println(url, "status_code", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		return
+	}
 	doc, err := goquery.NewDocumentFromReader(resp)
 	if err != nil {
 		log.Println(err)
@@ -822,10 +944,6 @@ func handleKey(e ui.Event) {
 		}
 		if key == "<enter>" {
 			if CurrState == StateTab {
-				ui.Body.Rows[1] = TopicRows
-				ui.Body.Align()
-				ui.Render(ui.Body)
-
 				uiTab.CurrChildTab = -1
 				if len(MatchList) > 0 {
 					tab := MatchList[MatchIndex]
@@ -848,49 +966,11 @@ func handleKey(e ui.Event) {
 					idx := MatchList[MatchIndex]
 					idx += uiTopic.Index
 
-					resetMatch()
-
-					uiReply.Topic = uiTopic.AllTopicInfo[idx]
-					parseReply(uiReply.Topic.Url, &uiReply.Reply)
-					log.Println("InnerWidth", uiReply.InnerWidth())
-					items := []string{"\n"}
-					text := WrapString(uiReply.Topic.Title, uiReply.InnerWidth()-1)
-					items = append(items, strings.Split(text, "\n")...)
-					items = append(items, "\n")
-					if len(uiReply.Reply.Content) > 0 {
-						items = append(items, strings.Repeat("=", uiReply.InnerWidth()-1))
-					}
-					for i, content := range uiReply.Reply.Content {
-						text := WrapString(content, uiReply.InnerWidth()-1)
-						items = append(items, strings.Split(text, "\n")...)
-						if i != len(uiReply.Reply.Content)-1 {
-							items = append(items, strings.Repeat("-", uiReply.InnerWidth()-1))
-						}
-					}
-					if len(uiReply.Reply.Content) > 0 {
-						items = append(items, strings.Repeat("=", uiReply.InnerWidth()-1))
-						items = append(items, "\n")
-					}
-					for _, rep := range uiReply.Reply.List {
-						source := strings.Replace(rep.Source, "♥", " [♥](fg-red)", 1)
-						if rep.Member == uiReply.Reply.Lz {
-							items = append(items, fmt.Sprintf("[%d](fg-blue) [%s](fg-cyan) %s", rep.Floor, rep.Member, source))
-						} else {
-							items = append(items, fmt.Sprintf("[%d](fg-blue) [%s](fg-green) %s", rep.Floor, rep.Member, source))
-						}
-						text := WrapString(rep.Reply, uiReply.InnerWidth()-1)
-						text = strings.Replace(text, "@"+uiReply.Reply.Lz, fmt.Sprintf("[@%s](fg-cyan)", uiReply.Reply.Lz), 1)
-						items = append(items, strings.Split(text, "\n")...)
-						items = append(items, "\n")
-					}
-					log.Println(strconv.Itoa(uiReply.Height))
-					uiReply.SetAllItems(items, true)
-
+					uiReply.Fresh(&uiTopic.AllTopicInfo[idx], false)
 					switchState(BodyStateReply)
 				}
 			}
 		}
-		ui.Render(ui.Body)
 	}
 }
 
@@ -902,15 +982,14 @@ func parseReply(url string, reply *ReplyList) error {
 	if err != nil {
 		return err
 	}
+	defer log.Println(url, "status_code", resp.StatusCode)
 	if resp.StatusCode != 200 {
 		return errors.New(fmt.Sprintf("resp.StatusCode=%d", resp.StatusCode))
 	}
-	defer log.Println(url, "status_code", resp.StatusCode)
 	doc, err := goquery.NewDocumentFromReader(resp)
 	if err != nil {
 		return err
 	}
-	reply.Url = url
 	doc.Find("div.topic_content").Each(func(i int, sel *goquery.Selection) {
 		selMD := sel.Find("div.markdown_body")
 		contentList := []string{}
@@ -1002,7 +1081,10 @@ func parseReply(url string, reply *ReplyList) error {
 					}
 				}
 			}
-			reply.Content = append(reply.Content, strings.Join(contentList, "\n\n"))
+			content := strings.Join(contentList, "\n\n")
+			content = strings.Replace(content, "[", "<", -1)
+			content = strings.Replace(content, "]", ">", -1)
+			reply.Content = append(reply.Content, content)
 		} else {
 			cnode := sel.Nodes[0].FirstChild
 			for cnode != nil {
@@ -1024,7 +1106,10 @@ func parseReply(url string, reply *ReplyList) error {
 				}
 				cnode = cnode.NextSibling
 			}
-			reply.Content = append(reply.Content, strings.Join(contentList, ""))
+			content := strings.Join(contentList, "")
+			content = strings.Replace(content, "[", "<", -1)
+			content = strings.Replace(content, "]", ">", -1)
+			reply.Content = append(reply.Content, content)
 		}
 	})
 
@@ -1070,6 +1155,8 @@ func parseReply(url string, reply *ReplyList) error {
 				cnode = cnode.NextSibling
 			}
 			info.Reply = strings.Join(contentList, "")
+			info.Reply = strings.Replace(info.Reply, "[", "<", -1)
+			info.Reply = strings.Replace(info.Reply, "]", ">", -1)
 			info.Floor, _ = strconv.Atoi(sel.Find("span.no").Text())
 			info.Member = sel.Find("a.dark").Text()
 			info.Source = sel.Find("span.fade.small").Text()
@@ -1216,7 +1303,6 @@ func main() {
 				LastCtrlW = now
 			}
 		}
-		ui.Render(ui.Body)
 	})
 	ui.Handle("/sys/kbd/C-t", func(ui.Event) {
 		if CurrState != StateTab {
@@ -1224,26 +1310,31 @@ func main() {
 		} else {
 			switchState(StateDefault)
 		}
-		ui.Render(ui.Body)
 	})
 	ui.Handle("/sys/kbd/C-r", func(ui.Event) {
 		if CurrState == StateBody {
 			if CurrBodyState == BodyStateTopic {
 				uiTopic.Fresh(uiTab.GetTabNode())
+			} else {
+				uiReply.Fresh(nil, false)
 			}
 		}
-		ui.Render(ui.Body)
 	})
 	ui.Handle("/sys/kbd/C-f", func(ui.Event) {
 		if CurrBodyState == BodyStateReply {
-			uiReply.PageDown()
+			if uiReply.PageDown() {
+			}
 		} else {
-			uiTopic.PageDown()
+			if !uiTopic.PageDown() {
+				uiTopic.LoadNext()
+			}
 		}
 	})
 	ui.Handle("/sys/kbd/C-b", func(ui.Event) {
 		if CurrBodyState == BodyStateReply {
-			uiReply.PageUp()
+			if !uiReply.PageUp() {
+				uiReply.LoadPrev()
+			}
 		} else {
 			uiTopic.PageUp()
 		}
@@ -1252,12 +1343,16 @@ func main() {
 		if CurrBodyState == BodyStateReply {
 			uiReply.ScrollDown()
 		} else {
-			uiTopic.ScrollDown()
+			if !uiTopic.ScrollDown() {
+				uiTopic.LoadNext()
+			}
 		}
 	})
 	ui.Handle("/sys/kbd/C-y", func(ui.Event) {
 		if CurrBodyState == BodyStateReply {
-			uiReply.ScrollUp()
+			if !uiReply.ScrollUp() {
+				uiReply.LoadPrev()
+			}
 		} else {
 			uiTopic.ScrollUp()
 		}
@@ -1268,19 +1363,16 @@ func main() {
 		} else {
 			switchState(BodyStateReply)
 		}
-		ui.Render(ui.Body)
 	})
 	ui.Handle("/sys/kbd/C-i", func(ui.Event) {
 		if CurrBodyState == BodyStateTopic {
 			switchState(BodyStateReply)
 		}
-		ui.Render(ui.Body)
 	})
 	ui.Handle("/sys/kbd/C-o", func(ui.Event) {
 		if CurrBodyState == BodyStateReply {
 			switchState(BodyStateTopic)
 		}
-		ui.Render(ui.Body)
 	})
 	ui.Handle("/sys/kbd", handleKey)
 	ui.Handle("/sys/kbd/C-l", func(e ui.Event) {
@@ -1313,7 +1405,6 @@ func main() {
 			firstLoad = false
 			uiTopic.Fresh(uiTab.GetTabNode())
 			switchState(BodyStateTopic)
-			ui.Render(ui.Body)
 		}
 	})
 	ui.Loop()
