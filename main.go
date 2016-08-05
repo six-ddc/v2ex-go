@@ -1,671 +1,56 @@
 package main
 
 import (
-	"fmt"
-	"github.com/PuerkitoBio/goquery"
-	requests "github.com/levigross/grequests"
-	rw "github.com/mattn/go-runewidth"
+	// "fmt"
 	ui "github.com/six-ddc/termui"
-	// "io/ioutil"
-	"errors"
+	"github.com/six-ddc/v2ex-go/lib"
 	"log"
-	"math/rand"
-	// "net/http"
-	// "net/http/cookiejar"
-	// "net/url"
-	"golang.org/x/net/html"
 	"os"
-	// "golang.org/x/net/publicsuffix"
-	// "encoding/json"
-	"bytes"
-	"strconv"
-	"strings"
 	"time"
 )
 
 var (
-	uiTab   *UITab
-	uiTopic *UITopicList
-	uiReply *UIReplyList
-	uiLog   *UILog
-	uiUser  *UIUser
+	uiTab   *g2ex.UITab
+	uiTopic *g2ex.UITopicList
+	uiReply *g2ex.UIReplyList
+	uiLog   *g2ex.UILog
+	uiUser  *g2ex.UIUser
 
 	TopicRows *ui.Row
 	ReplyRows *ui.Row
 
-	Session *requests.Session
-
 	LastCtrlW     int64
-	CurrState     State
-	CurrBodyState State
-
-	ShortKeys  []byte
-	MatchList  []int
-	MatchIndex int
+	CurrState     g2ex.State
+	CurrBodyState g2ex.State
 )
 
-type State int
-
-const (
-	StateDefault State = iota
-	StateTab
-	StateBody
-	StateMax
-)
-
-const (
-	BodyStateTopic State = StateMax + 1
-	BodyStateReply State = StateMax + 2
-)
-
-type UserInfo struct {
-	Name   string
-	Notify string
-	Silver int
-	Bronze int
-}
-
-type ReplyInfo struct {
-	Floor  int
-	Member string
-	Reply  string
-	Source string
-}
-
-type ReplyList struct {
-	Title    string
-	Content  []string
-	Lz       string
-	PostTime string
-	ClickNum string
-	List     []ReplyInfo
-}
-
-type TopicInfo struct {
-	Title      string
-	Url        string
-	Author     string
-	AuthorImg  string
-	Node       string
-	Time       string
-	LastReply  string
-	ReplyCount int
-}
-
-type TopicType uint16
-
-const (
-	TopicTab TopicType = iota
-	TopicNode
-)
-
-type ScrollList struct {
-	ui.List
-	AllItems []string
-	Index    int
-}
-
-func NewScrollList() *ScrollList {
-	s := &ScrollList{List: *ui.NewList()}
-	return s
-}
-
-func (l *ScrollList) SetItem(i int, item string) {
-	l.Items[i] = item
-}
-
-func (l *ScrollList) SetAllItems(items []string) {
-	l.AllItems = items
-	sz := l.InnerHeight()
-	log.Println("sz", sz, "len(items)", len(items), "index", l.Index)
-	if len(items)-l.Index < sz {
-		sz = len(items) - l.Index
-	}
-	l.Items = make([]string, sz)
-	// 显示index后面的部分
-	copy(l.Items, items[l.Index:]) // 复制长度以较小的slice为准
-	l.ResetBgColor()
-	ui.Render(l)
-}
-
-func (l *ScrollList) SetBgColor(i int, color ui.Attribute) {
-	if len(l.ItemBg) != len(l.Items) {
-		l.ResetBgColor()
-	}
-	l.ItemBg[i] = color
-	ui.Render(l)
-}
-
-func (l *ScrollList) Highlight(b bool) {
-	if b {
-		l.BorderFg = ui.ColorRed
-	} else {
-		l.BorderFg = ui.ColorDefault
-	}
-	ui.Render(l)
-}
-
-func (l *ScrollList) ResetBgColor() {
-	l.ItemBg = make([]ui.Attribute, len(l.Items))
-	for i, _ := range l.ItemBg {
-		l.ItemBg[i] = ui.ThemeAttr("list.item.bg")
-	}
-	ui.Render(l)
-}
-
-func (l *ScrollList) ScrollDown() bool {
-	sz := len(l.AllItems)
-	screen_heigth := l.InnerHeight()
-	if sz > screen_heigth+l.Index {
-		l.ResetBgColor()
-		l.Index++
-		l.SetAllItems(l.AllItems)
-		ui.Render(l)
-		return true
-	}
-	return false
-}
-
-func (l *ScrollList) PageDown() bool {
-	sz := len(l.AllItems)
-	screen_heigth := l.InnerHeight()
-	if sz < screen_heigth {
-		return false
-	}
-	index := l.Index + screen_heigth
-	if index >= sz {
-		return false
-	}
-	l.Index = index
-	l.SetAllItems(l.AllItems)
-	ui.Render(l)
-	return true
-}
-
-func (l *ScrollList) PageUp() bool {
-	if l.Index == 0 {
-		return false
-	}
-	screen_heigth := l.InnerHeight()
-	index := l.Index - screen_heigth
-	if index < 0 {
-		index = 0
-	}
-	l.Index = index
-	l.SetAllItems(l.AllItems)
-	ui.Render(l)
-	return true
-}
-
-func (l *ScrollList) ScrollUp() bool {
-	if l.Index > 0 {
-		l.ResetBgColor()
-		l.Index--
-		l.SetAllItems(l.AllItems)
-		ui.Render(l)
-		return true
-	}
-	return false
-}
-
-var userAgent string = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/52.0.2743.82 Safari/537.36"
-
-type UILog struct {
-	ui.List
-	Label string
-	Index int
-}
-
-func NewLog() *UILog {
-	l := &UILog{Index: 0, Label: "Log [C-l]"}
-	l.List = *ui.NewList()
-	l.Height = 5
-	l.BorderLabel = l.Label
-	l.Items = make([]string, l.Height-2)
-	return l
-}
-
-func (l *UILog) Write(p []byte) (n int, err error) {
-	str := fmt.Sprintf("[%d] %s", uiLog.Index+1, p)
-	if uiLog.Items[len(uiLog.Items)-1] != "" {
-		i := 0
-		for ; i < len(uiLog.Items)-1; i++ {
-			uiLog.Items[i] = uiLog.Items[i+1]
-		}
-		uiLog.Items[i] = str
-	} else {
-		for i, item := range uiLog.Items {
-			if item == "" {
-				uiLog.Items[i] = str
-				break
-			}
-		}
-	}
-	uiLog.Index++
-	ui.Render(l)
-	return len(p), nil
-}
-
-type UIUser struct {
-	ui.List
-	User *UserInfo
-}
-
-func NewUser() *UIUser {
-	u := &UIUser{User: &UserInfo{}}
-	u.List = *ui.NewList()
-	u.Height = 5
-	u.Items = make([]string, u.Height-2)
-	return u
-}
-
-func (u *UIUser) Fresh() {
-	if len(u.User.Name) > 0 {
-		u.Items[0] = fmt.Sprintf("[%s](fg-green)", u.User.Name)
-		balance := fmt.Sprintf("%d/%d", u.User.Silver, u.User.Bronze)
-		space_width := u.InnerWidth() - 1 - rw.StringWidth(u.User.Notify) - rw.StringWidth(balance)
-		if space_width > 0 {
-			u.Items[2] = fmt.Sprintf("%s%s%s", u.User.Notify, strings.Repeat(" ", space_width), balance)
-		} else {
-			u.Items[2] = fmt.Sprintf("%d %s", u.User.Notify, balance)
-		}
-	}
-}
-
-type UITab struct {
-	ui.List
-	Label        string
-	NameList     [][]string
-	ChildList    [][][]string
-	CurrTab      int
-	CurrChildTab int
-}
-
-func NewTab() *UITab {
-	t := &UITab{Label: "Tab [C-t]", CurrTab: 9 /*(全部)*/, CurrChildTab: -1}
-	t.NameList = [][]string{
-		{"技术", "创意", "好玩", "Apple", "酷工作", "交易", "城市", "问与答", "最热", "全部", "R2", "节点", "关注"},
-		{"tech", "creative", "play", "apple", "jobs", "deals", "city", "qna", "hot", "all", "r2", "nodes", "members"}}
-	t.ChildList = make([][][]string, len(t.NameList[0]))
-	t.List = *ui.NewList()
-	t.BorderLabel = t.Label
-	t.Height = 2 + 2
-	t.Items = make([]string, 2)
-	t.ResetTabList()
-	return t
-}
-
-func (t *UITab) Highlight(b bool) {
-	if b {
-		t.BorderFg = ui.ColorRed
-	} else {
-		t.BorderFg = ui.ColorDefault
-	}
-	ui.Render(t)
-}
-
-func (t *UITab) ResetTabList() {
-	strList := []string{}
-	for i, names := range (t.NameList)[0] {
-		if i == t.CurrTab {
-			strList = append(strList, fmt.Sprintf("[%s](bg-red)", names))
-		} else {
-			strList = append(strList, names)
-		}
-	}
-	t.Items[0] = strings.Join(strList, " ")
-	childList := (t.ChildList)[t.CurrTab]
-	if len(childList) == 0 {
-		t.Items[1] = ""
-		return
-	}
-	strList = strList[:0]
-	for i, names := range childList[0] {
-		if i == t.CurrChildTab {
-			strList = append(strList, fmt.Sprintf("[%s](bg-red)", names))
-		} else {
-			strList = append(strList, names)
-		}
-	}
-	t.Items[1] = strings.Join(strList, " ")
-	ui.Render(t)
-}
-
-func (t *UITab) UpdateLabel() {
-	str := t.Label
-	if len(ShortKeys) > 0 {
-		str = fmt.Sprintf("%s (%s)", str, ShortKeys)
-	}
-	t.BorderLabel = str
-	ui.Render(t)
-}
-
-func (t *UITab) GetTabNode() (cate string, node string) {
-	cate = t.NameList[1][t.CurrTab]
-	if t.CurrChildTab >= 0 {
-		childList := (t.ChildList)[t.CurrTab]
-		if len(childList) > 0 {
-			node = childList[1][t.CurrChildTab]
-		}
-	}
-	return
-}
-
-func (t *UITab) MatchTab() {
-	strList := []string{}
-	count := 0
-	MatchList = MatchList[:0]
-	for i, names := range (t.NameList)[1] {
-		str := matchKey([]byte(names), ShortKeys)
-		if str != names {
-			if count == MatchIndex {
-				strList = append(strList, fmt.Sprintf("[%s](bg-red)<%s>", t.NameList[0][i], str))
-			} else {
-				strList = append(strList, fmt.Sprintf("[%s](bg-blue)<%s>", t.NameList[0][i], str))
-			}
-			count++
-			MatchList = append(MatchList, i)
-		} else {
-			strList = append(strList, fmt.Sprintf("%s<%s>", t.NameList[0][i], names))
-		}
-	}
-	t.Items[0] = strings.Join(strList, " ")
-	childList := (t.ChildList)[t.CurrTab]
-	if len(childList) == 0 {
-		return
-	}
-	strList = strList[:0]
-	for i, names := range childList[1] {
-		str := matchKey([]byte(names), ShortKeys)
-		if str != names {
-			if count == MatchIndex {
-				strList = append(strList, fmt.Sprintf("[%s](bg-red)<%s>", childList[0][i], str))
-			} else {
-				strList = append(strList, fmt.Sprintf("[%s](bg-blue)<%s>", childList[0][i], str))
-			}
-			count++
-			MatchList = append(MatchList, i+len(t.NameList[1]))
-		} else {
-			strList = append(strList, fmt.Sprintf("%s<%s>", childList[0][i], names))
-		}
-	}
-	t.Items[1] = strings.Join(strList, " ")
-	ui.Render(t)
-}
-
-type UITopicList struct {
-	ScrollList
-	Label        string
-	Name         string
-	Type         TopicType
-	AllTopicInfo []TopicInfo
-	Page         int
-}
-
-func NewTopicList() *UITopicList {
-	l := &UITopicList{Label: "Topic [C-p]", Type: TopicTab, Page: 1}
-	l.ScrollList = *NewScrollList()
-	l.BorderLabel = l.Label
-	return l
-}
-
-func (l *UITopicList) UpdateLabel() {
-	str := l.Label
-	if len(l.Name) > 0 {
-		str = fmt.Sprintf("%s (%s)", str, l.Name)
-	}
-	if len(ShortKeys) > 0 {
-		str = fmt.Sprintf("%s (%s)", str, ShortKeys)
-	}
-	l.BorderLabel = str
-	ui.Render(l)
-}
-
-func (l *UITopicList) MatchTopic() {
-	count := 0
-	MatchList = MatchList[:0]
-	l.ResetBgColor()
-	log.Println("+", len(l.Items), len(l.AllItems), l.Index)
-	for i := 0; i < len(l.Items); i++ {
-		item := l.AllItems[i+l.Index]
-		match_str := []byte(item)[:10]
-		str := matchKey(match_str, ShortKeys)
-		if str != string(match_str) {
-			if count == MatchIndex {
-				l.SetBgColor(i, ui.ColorRed)
-			} else {
-				l.SetBgColor(i, ui.ColorBlue)
-			}
-			count++
-			MatchList = append(MatchList, i)
-			l.SetItem(i, fmt.Sprintf("%s%s", str, []byte(item)[10:]))
-		} else {
-			l.SetItem(i, item)
-		}
-	}
-	ui.Render(l)
-}
-
-func (l *UITopicList) Fresh(cate, node string) {
-	l.Index = 0
-	log.Println(cate, node)
-	resetMatch()
-	l.Name = "..."
-	l.UpdateLabel()
-	ui.Render(l)
-	if len(node) > 0 {
-		l.Name = node
-		l.Type = TopicNode
-		l.AllTopicInfo = parseTopicByNode(l.Name, 1)
-	} else {
-		l.Name = cate
-		l.Type = TopicTab
-		l.AllTopicInfo = parseTopicByTab(l.Name)
-	}
-	l.DrawTopic()
-	l.UpdateLabel()
-	ui.Render(l)
-}
-
-func (l *UITopicList) LoadNext() {
-	if l.Type == TopicTab {
-		// tab 不支持翻页
-		return
-	}
-	l.Page += 1
-	name := l.Name
-	log.Println(l.Name, l.Page)
-	resetMatch()
-	l.Name = "..."
-	l.UpdateLabel()
-	ui.Render(l)
-	l.Name = name
-	tpList := parseTopicByNode(l.Name, l.Page)
-	l.AllTopicInfo = append(l.AllTopicInfo, tpList...)
-	l.DrawTopic()
-	l.UpdateLabel()
-	ui.Render(l)
-}
-
-func (l *UITopicList) DrawTopic() {
-	lst := make([]string, len(l.AllTopicInfo))
-	for i, info := range l.AllTopicInfo {
-		prefix := fmt.Sprintf("<%02d> <%s> ", i, randID())
-		prefix_width := rw.StringWidth(prefix)
-		title := info.Title
-		title_witth := rw.StringWidth(title)
-		var suffix string
-		// if len(info.Time) > 0 {
-		if len(info.Time) < 0 {
-			if l.Type == TopicTab {
-				suffix = fmt.Sprintf("[<%d>](fg-bold,fg-blue) %s %s [%s](fg-green)", info.ReplyCount, info.Node, info.Time, info.Author)
-			} else {
-				suffix = fmt.Sprintf("[<%d>](fg-bold,fg-blue) %s [%s](fg-green)", info.ReplyCount, info.Time, info.Author)
-			}
-		} else {
-			if l.Type == TopicTab {
-				suffix = fmt.Sprintf("[<%d>](fg-bold,fg-blue) %s [%s](fg-green)", info.ReplyCount, info.Node, info.Author)
-			} else {
-				suffix = fmt.Sprintf("[<%d>](fg-bold,fg-blue) [%s](fg-green)", info.ReplyCount, info.Author)
-			}
-		}
-		suffix_width := rw.StringWidth(suffix) - rw.StringWidth("[](fg-bold,fg-blue)[](fg-green)")
-		space_width := l.InnerWidth() - 1 - (prefix_width + suffix_width + title_witth)
-		if space_width < 0 {
-			trim_width := l.InnerWidth() - 1 - prefix_width - suffix_width
-			title_rune := []rune(title)
-			w := 0
-			ellip_widh := rw.StringWidth("…")
-			for i, ch := range title_rune {
-				w += rw.RuneWidth(ch)
-				if w > trim_width-ellip_widh {
-					if i > 0 {
-						title = string(title_rune[:i]) + "…"
-					} else {
-						title = ""
-					}
-					break
-				}
-			}
-			space_width = 0
-		}
-		lst[i] = fmt.Sprintf("%s%s%s%s", prefix, title, strings.Repeat(" ", space_width), suffix)
-	}
-	l.SetAllItems(lst)
-}
-
-type UIReplyList struct {
-	ScrollList
-	Topic *TopicInfo
-	Reply ReplyList
-	Label string
-}
-
-func NewReplyList() *UIReplyList {
-	r := &UIReplyList{ScrollList: *NewScrollList(), Label: "Reply [C-p]"}
-	return r
-}
-
-func (l *UIReplyList) UpdateLabel() {
-	str := l.Label
-	if l.Topic != nil && len(l.Topic.Url) > 0 {
-		str = fmt.Sprintf("%s [%s](fg-cyan) (%s)", str, l.Reply.Lz, l.Topic.Url)
-	}
-	/*
-		if len(ShortKeys) > 0 {
-			str = fmt.Sprintf("%s (%s)", str, ShortKeys)
-		}
-	*/
-	l.BorderLabel = str
-	ui.Render(l)
-}
-
-func (l *UIReplyList) Fresh(topic *TopicInfo, addToHead bool) {
-	l.Index = 0
-	if topic != nil {
-		l.Topic = topic
-	}
-	if l.Topic == nil {
-		return
-	}
-	if addToHead { // 加载上一页的情况
-		var reply ReplyList
-		if parseReply(l.Topic.Url, &reply) != nil {
-			return
-		}
-		l.Reply.List = append(reply.List, l.Reply.List...)
-	} else {
-		if parseReply(l.Topic.Url, &l.Reply) != nil {
-			return
-		}
-	}
-	log.Println("addToHead", addToHead)
-	items := []string{"\n"}
-	text := WrapString(l.Topic.Title, l.InnerWidth()-1)
-	items = append(items, strings.Split(text, "\n")...)
-	items = append(items, "\n")
-	if len(l.Reply.Content) > 0 {
-		items = append(items, strings.Repeat("=", l.InnerWidth()-1))
-	}
-	for i, content := range l.Reply.Content {
-		text := WrapString(content, l.InnerWidth()-1)
-		items = append(items, strings.Split(text, "\n")...)
-		if i != len(l.Reply.Content)-1 {
-			items = append(items, strings.Repeat("-", l.InnerWidth()-1))
-		}
-	}
-	if len(l.Reply.Content) > 0 {
-		items = append(items, strings.Repeat("=", l.InnerWidth()-1))
-		items = append(items, "\n")
-	}
-	for i, rep := range l.Reply.List {
-		source := strings.Replace(rep.Source, "♥", " [♥](fg-red)", 1)
-		if rep.Member == l.Reply.Lz {
-			items = append(items, fmt.Sprintf("[%d](fg-blue) [%s](fg-cyan) %s", rep.Floor, rep.Member, source))
-		} else {
-			items = append(items, fmt.Sprintf("[%d](fg-blue) [%s](fg-green) %s", rep.Floor, rep.Member, source))
-		}
-		text := WrapString(rep.Reply, l.InnerWidth()-1)
-		text = strings.Replace(text, "@"+l.Reply.Lz, fmt.Sprintf("[@%s](fg-cyan)", l.Reply.Lz), 1)
-		items = append(items, strings.Split(text, "\n")...)
-		if i != len(l.Reply.List)-1 {
-			items = append(items, "\n")
-		}
-	}
-	l.SetAllItems(items)
-	ui.Render(l)
-}
-
-func (l *UIReplyList) LoadPrev() {
-	if len(l.Reply.List) == 0 || l.Reply.List[0].Floor/100 == 0 {
-		return
-	}
-	page := l.Reply.List[0].Floor / 100
-	idx := strings.Index(l.Topic.Url, "#reply")
-	if idx > -1 {
-		l.Topic.Url = l.Topic.Url[:idx]
-	}
-	url := fmt.Sprintf("%s?p=%d", l.Topic.Url, page)
-	l.Topic.Url = "..."
-	l.UpdateLabel()
-	l.Topic.Url = url
-	l.Fresh(l.Topic, true)
-	l.UpdateLabel()
-}
-
-func resetMatch() {
-	ShortKeys = ShortKeys[:0]
-	MatchList = MatchList[:0]
-	MatchIndex = 0
-}
-
-func switchState(st State) {
+func switchState(st g2ex.State) {
 	log.Println(st, CurrState, CurrBodyState)
-	if st == BodyStateReply {
-		if CurrBodyState != BodyStateReply {
+	if st == g2ex.BodyStateReply {
+		if CurrBodyState != g2ex.BodyStateReply {
 			ui.Body.Rows[1] = ReplyRows
 			ui.Body.Align()
 			ui.Render(ui.Body)
-			CurrBodyState = BodyStateReply
+			CurrBodyState = g2ex.BodyStateReply
 		}
-		st = StateBody
-	} else if st == BodyStateTopic {
-		if CurrBodyState != BodyStateTopic {
+		st = g2ex.StateBody
+	} else if st == g2ex.BodyStateTopic {
+		if CurrBodyState != g2ex.BodyStateTopic {
 			ui.Body.Rows[1] = TopicRows
 			ui.Body.Align()
 			ui.Render(ui.Body)
-			CurrBodyState = BodyStateTopic
+			CurrBodyState = g2ex.BodyStateTopic
 		}
-		st = StateBody
+		st = g2ex.StateBody
 	}
-	resetMatch()
+	g2ex.ResetMatch()
 	switch st {
-	case StateDefault:
+	case g2ex.StateDefault:
 		uiTab.ResetTabList()
 		uiTab.Highlight(false)
 		uiTab.UpdateLabel()
 
-		if CurrBodyState == BodyStateTopic {
+		if CurrBodyState == g2ex.BodyStateTopic {
 			uiTopic.Highlight(false)
 			uiTopic.UpdateLabel()
 		} else {
@@ -673,13 +58,13 @@ func switchState(st State) {
 			uiReply.UpdateLabel()
 		}
 
-		CurrState = StateDefault
-	case StateTab:
+		CurrState = g2ex.StateDefault
+	case g2ex.StateTab:
 		uiTab.MatchTab()
 		uiTab.Highlight(true)
 		uiTab.UpdateLabel()
 
-		if CurrBodyState == BodyStateTopic {
+		if CurrBodyState == g2ex.BodyStateTopic {
 			uiTopic.Highlight(false)
 			uiTopic.UpdateLabel()
 		} else {
@@ -687,13 +72,13 @@ func switchState(st State) {
 			uiReply.UpdateLabel()
 		}
 
-		CurrState = StateTab
-	case StateBody:
+		CurrState = g2ex.StateTab
+	case g2ex.StateBody:
 		uiTab.ResetTabList()
 		uiTab.Highlight(false)
 		uiTab.UpdateLabel()
 
-		if CurrBodyState == BodyStateTopic {
+		if CurrBodyState == g2ex.BodyStateTopic {
 			uiTopic.Highlight(true)
 			uiTopic.UpdateLabel()
 		} else {
@@ -701,252 +86,55 @@ func switchState(st State) {
 			uiReply.UpdateLabel()
 		}
 
-		CurrState = StateBody
+		CurrState = g2ex.StateBody
 	}
-}
-
-func matchKey(str, key []byte) string {
-	color_rc := "[c](fg-green)"
-	color_bytes := []byte(color_rc)
-	key_map := make(map[byte]uint16)
-	for _, c := range key {
-		key_map[c]++
-	}
-	name_map := make(map[byte]uint16)
-	for _, c := range str {
-		name_map[c]++
-	}
-	has := true
-	for _, rc := range key {
-		if key_map[rc] > name_map[rc] {
-			has = false
-			break
-		}
-	}
-	if has && len(ShortKeys) > 0 {
-		short := []byte{}
-		for _, rc := range str {
-			if key_map[rc] != 0 {
-				color_bytes[1] = rc
-				short = append(short, color_bytes...)
-			} else {
-				short = append(short, rc)
-			}
-		}
-		return string(short)
-	}
-	return string(str)
-}
-
-func parseTopicByTab(tab string) (ret []TopicInfo) {
-	url := fmt.Sprintf("https://www.v2ex.com/?tab=%s", tab)
-	resp, err := Session.Get(url, &requests.RequestOptions{
-		UserAgent: userAgent,
-	})
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	defer log.Println(url, "status_code", resp.StatusCode)
-	if resp.StatusCode != 200 {
-		return
-	}
-	doc, err := goquery.NewDocumentFromResponse(resp.RawResponse)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	uiUser.User.Name = strings.TrimSpace(doc.Find("span.bigger a").Text())
-	doc.Find("a.fade").Each(func(i int, s *goquery.Selection) {
-		if v, has := s.Attr("href"); has && v == "/notifications" {
-			uiUser.User.Notify = s.Text()
-		}
-	})
-	sliverStr := doc.Find("a.balance_area").Text()
-	sliverLst := strings.Split(sliverStr, " ")
-	setSli := false
-	for _, sli := range sliverLst {
-		if len(sli) > 0 {
-			if !setSli {
-				uiUser.User.Silver, _ = strconv.Atoi(sli)
-				setSli = true
-			} else {
-				uiUser.User.Bronze, _ = strconv.Atoi(sli)
-				break
-			}
-		}
-	}
-	uiUser.Fresh()
-	log.Println("UserInfo", uiUser.User)
-	childList := [][]string{{}, {}}
-	doc.Find("div.box div.cell").Each(func(i int, s *goquery.Selection) {
-		if s.Next().HasClass("cell item") && s.Prev().HasClass("inner") {
-			s.Find("a").Each(func(i int, s *goquery.Selection) {
-				href, _ := s.Attr("href")
-				hrefSplit := strings.Split(href, "/")
-				if hrefSplit[len(hrefSplit)-2] == "go" {
-					href = hrefSplit[len(hrefSplit)-1]
-					childList[1] = append(childList[1], href)
-					childList[0] = append(childList[0], s.Text())
-				}
-			})
-		}
-	})
-	uiTab.ChildList[uiTab.CurrTab] = childList
-	doc.Find("div.cell.item").Each(func(i int, s *goquery.Selection) {
-		topic := TopicInfo{}
-		title := s.Find(".item_title a")
-		topic.Title = title.Text()
-		topic.Url, _ = title.Attr("href")
-		topic.Url = "https://www.v2ex.com" + topic.Url
-		info := s.Find(".small.fade").Text()
-		info = strings.Replace(info, " ", "", -1)
-		info = strings.Replace(info, string([]rune{0xA0}), "", -1) // 替换&nbsp
-		infoList := strings.Split(info, "•")
-		topic.Node = s.Find("a.node").Text()
-		topic.Author = infoList[1]
-		if len(infoList) > 2 {
-			topic.Time = infoList[2]
-			if len(infoList) > 3 {
-				topic.LastReply = infoList[3]
-			}
-		}
-		replyCount := s.Find("a.count_livid").Text()
-		if replyCount != "" {
-			topic.ReplyCount, _ = strconv.Atoi(replyCount)
-		}
-		ret = append(ret, topic)
-	})
-	return
-}
-
-func parseTopicByNode(node string, page int) (ret []TopicInfo) {
-	var url string
-	if page > 1 {
-		url = fmt.Sprintf("https://www.v2ex.com/go/%s?p=%d", node, page)
-	} else {
-		url = fmt.Sprintf("https://www.v2ex.com/go/%s", node)
-	}
-	resp, err := Session.Get(url, &requests.RequestOptions{
-		UserAgent: userAgent,
-	})
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	defer log.Println(url, "status_code", resp.StatusCode)
-	if resp.StatusCode != 200 {
-		return
-	}
-	doc, err := goquery.NewDocumentFromReader(resp)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	sel := doc.Find("div#TopicsNode")
-	// log.Println(sel.Size())
-	sel.Find("div.cell").Each(func(i int, s *goquery.Selection) {
-		info := s.Find(".small.fade").Text()
-		info = strings.Replace(info, " ", "", -1)
-		info = strings.Replace(info, string([]rune{0xA0}), "", -1) // 替换&nbsp
-		if len(info) == 0 {
-			return
-		}
-		topic := TopicInfo{}
-		title := s.Find(".item_title a")
-		topic.Title = title.Text()
-		topic.Url, _ = title.Attr("href")
-		topic.Url = "https://www.v2ex.com" + topic.Url
-		infoList := strings.Split(info, "•")
-		topic.Node = node
-		topic.Author = infoList[0]
-		if len(infoList) > 2 {
-			topic.Time = infoList[1]
-			if len(infoList) > 3 {
-				topic.LastReply = infoList[2]
-			}
-		}
-		replyCount := s.Find("a.count_livid").Text()
-		if replyCount != "" {
-			topic.ReplyCount, _ = strconv.Atoi(replyCount)
-		}
-		ret = append(ret, topic)
-		// log.Println(s.Find(".small.fade a.node").Text())
-		// log.Println(s.Find(".small.fade strong a").Text())
-	})
-	return
-}
-
-func randID() []byte {
-	ret := make([]byte, 2)
-	ret[0] = byte(rand.Int()%26) + 'a'
-	ret[1] = byte(rand.Int()%26) + 'a'
-	return ret
-}
-
-func WrapString(str string, limit int) string {
-	wid := 0
-	buf := bytes.NewBuffer([]byte{})
-	for _, ch := range str {
-		w := rw.RuneWidth(ch)
-		if ch == '\n' {
-			wid = 0
-		} else {
-			if wid+w > limit {
-				buf.WriteRune('\n')
-				wid = 0
-			} else {
-				wid += w
-			}
-		}
-		buf.WriteRune(ch)
-	}
-	return buf.String()
 }
 
 func handleKey(e ui.Event) {
 	switch CurrState {
-	case StateDefault:
+	case g2ex.StateDefault:
 		log.Println(e.Data.(ui.EvtKbd).KeyStr, "default")
-	case StateTab, StateBody:
+	case g2ex.StateTab, g2ex.StateBody:
 		key := e.Data.(ui.EvtKbd).KeyStr
 		if len(key) == 1 && ((key[0] >= '0' && key[0] <= '9') || (key[0] >= 'a' && key[0] <= 'z') || (key[0] >= 'A' && key[0] <= 'Z')) {
-			MatchIndex = 0
+			g2ex.MatchIndex = 0
 			log.Println(e.Data.(ui.EvtKbd).KeyStr, "select")
-			ShortKeys = append(ShortKeys, key[0])
-			if CurrState == StateTab {
+			g2ex.ShortKeys = append(g2ex.ShortKeys, key[0])
+			if CurrState == g2ex.StateTab {
 				uiTab.MatchTab()
 				uiTab.UpdateLabel()
-			} else if CurrState == StateBody {
-				uiTopic.MatchTopic()
-				uiTopic.UpdateLabel()
+			} else if CurrState == g2ex.StateBody {
+				if CurrBodyState == g2ex.BodyStateTopic {
+					uiTopic.MatchTopic()
+					uiTopic.UpdateLabel()
+				}
 			}
 		}
 		if key == "<escape>" || key == "C-c" || key == "C-u" {
-			MatchIndex = 0
-			ShortKeys = ShortKeys[:0]
-			if CurrState == StateTab {
+			g2ex.MatchIndex = 0
+			g2ex.ShortKeys = g2ex.ShortKeys[:0]
+			if CurrState == g2ex.StateTab {
 				uiTab.MatchTab()
 				uiTab.UpdateLabel()
-			} else if CurrState == StateBody {
+			} else if CurrState == g2ex.StateBody {
 				uiTopic.MatchTopic()
 				uiTopic.UpdateLabel()
 			}
 		}
-		if key == "C-n" && len(MatchList) > 0 {
-			MatchIndex++
-			MatchIndex = MatchIndex % len(MatchList)
-			if CurrState == StateTab {
+		if key == "C-n" && len(g2ex.MatchList) > 0 {
+			g2ex.MatchIndex++
+			g2ex.MatchIndex = g2ex.MatchIndex % len(g2ex.MatchList)
+			if CurrState == g2ex.StateTab {
 				uiTab.MatchTab()
 			} else {
 				uiTopic.MatchTopic()
 			}
 		}
 		if key == "<enter>" {
-			if CurrState == StateTab {
+			if CurrState == g2ex.StateTab {
 				uiTab.CurrChildTab = -1
-				if len(MatchList) > 0 {
-					tab := MatchList[MatchIndex]
+				if len(g2ex.MatchList) > 0 {
+					tab := g2ex.MatchList[g2ex.MatchIndex]
 					sz := len(uiTab.NameList[0])
 					if tab >= sz {
 						uiTab.CurrChildTab = tab - sz
@@ -957,278 +145,21 @@ func handleKey(e ui.Event) {
 					uiTab.CurrTab = 0
 				}
 				uiTopic.Fresh(uiTab.GetTabNode())
-				switchState(BodyStateTopic)
-			} else if CurrState == StateBody {
-				if len(MatchList) == 0 {
+				switchState(g2ex.BodyStateTopic)
+			} else if CurrState == g2ex.StateBody {
+				if len(g2ex.MatchList) == 0 {
 					return
 				}
-				if CurrBodyState == BodyStateTopic {
-					idx := MatchList[MatchIndex]
+				if CurrBodyState == g2ex.BodyStateTopic {
+					idx := g2ex.MatchList[g2ex.MatchIndex]
 					idx += uiTopic.Index
 
 					uiReply.Fresh(&uiTopic.AllTopicInfo[idx], false)
-					switchState(BodyStateReply)
+					switchState(g2ex.BodyStateReply)
 				}
 			}
 		}
 	}
-}
-
-func parseReply(url string, reply *ReplyList) error {
-	*reply = ReplyList{}
-	resp, err := Session.Get(url, &requests.RequestOptions{
-		UserAgent: userAgent,
-	})
-	if err != nil {
-		return err
-	}
-	defer log.Println(url, "status_code", resp.StatusCode)
-	if resp.StatusCode != 200 {
-		return errors.New(fmt.Sprintf("resp.StatusCode=%d", resp.StatusCode))
-	}
-	doc, err := goquery.NewDocumentFromReader(resp)
-	if err != nil {
-		return err
-	}
-	doc.Find("div.topic_content").Each(func(i int, sel *goquery.Selection) {
-		selMD := sel.Find("div.markdown_body")
-		contentList := []string{}
-		if selMD.Size() > 0 {
-			sel = selMD.Children()
-			for _, node := range sel.Nodes {
-				if node.Type == html.ElementNode {
-					if node.Data == "p" {
-						cnode := node.FirstChild
-						pList := []string{}
-						for cnode != nil {
-							if cnode.Type == html.TextNode {
-								pList = append(pList, cnode.Data)
-							} else if cnode.Type == html.ElementNode {
-								if cnode.Data == "a" {
-									var href, text string
-									for _, attr := range cnode.Attr {
-										if attr.Key == "href" {
-											href = attr.Val
-										}
-									}
-									if len(href) > 0 && cnode.FirstChild != nil {
-										text = cnode.FirstChild.Data
-									}
-									if href == text {
-										pList = append(pList, href)
-									} else {
-										pList = append(pList, fmt.Sprintf("<%s>(%s)", text, href))
-									}
-									pList = append(pList, text)
-								} else if cnode.Data == "img" {
-									for _, attr := range cnode.Attr {
-										if attr.Key == "src" {
-											pList = append(pList, attr.Val)
-										}
-									}
-								} else if cnode.Data == "strong" {
-									pList = append(pList, cnode.FirstChild.Data)
-								}
-							}
-							cnode = cnode.NextSibling
-						}
-						contentList = append(contentList, strings.Join(pList, ""))
-					} else if node.Data == "ol" || node.Data == "ul" {
-						cnode := node.FirstChild
-						idx := 1
-						olList := []string{}
-						for cnode != nil {
-							if cnode.Data == "li" {
-								if node.Data == "ol" {
-									olList = append(olList, fmt.Sprintf("%d. %s", idx, cnode.FirstChild.Data))
-								} else {
-									olList = append(olList, fmt.Sprintf("* %s", cnode.FirstChild.Data))
-								}
-								idx++
-							}
-							cnode = cnode.NextSibling
-						}
-						contentList = append(contentList, strings.Join(olList, "\n"))
-					} else if node.Data == "img" {
-						for _, attr := range node.Attr {
-							if attr.Key == "src" {
-								contentList = append(contentList, attr.Val)
-							}
-						}
-					} else if node.Data[0] == 'h' && (node.Data[1] >= '1' && node.Data[1] <= '6') {
-						var hstr string
-						if node.FirstChild.Type == html.TextNode {
-							hstr = node.FirstChild.Data
-						} else if node.FirstChild.Type == html.ElementNode {
-							if node.FirstChild.Data == "a" {
-								var href, text string
-								for _, attr := range node.FirstChild.Attr {
-									if attr.Key == "href" {
-										href = attr.Val
-									}
-								}
-								if len(href) > 0 && node.FirstChild.FirstChild != nil {
-									text = node.FirstChild.FirstChild.Data
-								}
-								if href == text {
-									hstr = href
-								} else {
-									hstr = fmt.Sprintf("<%s>(%s)", text, href)
-								}
-							}
-						}
-						contentList = append(contentList, fmt.Sprintf("%s %s", strings.Repeat("#", int(node.Data[1]-'0')), hstr))
-					}
-				}
-			}
-			content := strings.Join(contentList, "\n\n")
-			content = strings.Replace(content, "[", "<", -1)
-			content = strings.Replace(content, "]", ">", -1)
-			reply.Content = append(reply.Content, content)
-		} else {
-			cnode := sel.Nodes[0].FirstChild
-			for cnode != nil {
-				if cnode.Type == html.TextNode {
-					contentList = append(contentList, cnode.Data)
-				} else if cnode.Data == "img" {
-					for _, attr := range cnode.Attr {
-						if attr.Key == "src" {
-							contentList = append(contentList, attr.Val)
-						}
-					}
-				} else if cnode.Data == "a" {
-					for _, attr := range cnode.Attr {
-						if attr.Key == "href" {
-							contentList = append(contentList, attr.Val)
-							break
-						}
-					}
-				}
-				cnode = cnode.NextSibling
-			}
-			content := strings.Join(contentList, "")
-			content = strings.Replace(content, "[", "<", -1)
-			content = strings.Replace(content, "]", ">", -1)
-			reply.Content = append(reply.Content, content)
-		}
-	})
-
-	head := doc.Find("small.gray").Text()
-	head = strings.Replace(head, string([]rune{0xA0}), "", -1)
-	head = strings.Replace(head, " ", "", -1)
-	headList := strings.Split(head, "·")
-	reply.Lz = headList[0]
-	reply.PostTime = headList[1]
-	reply.ClickNum = headList[2]
-
-	doc.Find("div#Main div.box").Find("div").Each(func(i int, sel *goquery.Selection) {
-		idAttr, has := sel.Attr("id")
-		if has && string(idAttr[:2]) == "r_" {
-			replySel := sel.Find("div.reply_content")
-			if len(replySel.Nodes) == 0 {
-				return
-			}
-			info := ReplyInfo{}
-			contentList := []string{}
-			cnode := replySel.Nodes[0].FirstChild
-			for cnode != nil {
-				if cnode.Type == html.TextNode {
-					contentList = append(contentList, cnode.Data)
-				} else if cnode.Data == "img" {
-					for _, attr := range cnode.Attr {
-						if attr.Key == "src" {
-							contentList = append(contentList, attr.Val)
-						}
-					}
-				} else if cnode.Data == "a" {
-					for _, attr := range cnode.Attr {
-						if attr.Key == "href" {
-							if strings.HasPrefix(attr.Val, "/member") {
-								contentList = append(contentList, cnode.FirstChild.Data)
-							} else {
-								contentList = append(contentList, attr.Val)
-							}
-							break
-						}
-					}
-				}
-				cnode = cnode.NextSibling
-			}
-			info.Reply = strings.Join(contentList, "")
-			info.Reply = strings.Replace(info.Reply, "[", "<", -1)
-			info.Reply = strings.Replace(info.Reply, "]", ">", -1)
-			info.Floor, _ = strconv.Atoi(sel.Find("span.no").Text())
-			info.Member = sel.Find("a.dark").Text()
-			info.Source = sel.Find("span.fade.small").Text()
-			reply.List = append(reply.List, info)
-			// log.Println(info.Floor, info.Member, info.Time)
-		}
-	})
-
-	return nil
-}
-
-func login(username, password string) error {
-
-	/*
-		ui.Close()
-		reply := &ReplyList{}
-		// parseReply("https://www.v2ex.com/t/296412", reply)
-		parseReply("https://www.v2ex.com/t/296493", reply)
-		for _, content := range reply.Content {
-			log.Println(content)
-		}
-		log.Println(reply.Lz, reply.PostTime, reply.ClickNum)
-
-		os.Exit(1)
-		return nil
-	*/
-
-	resp, err := Session.Get("https://www.v2ex.com/signin", &requests.RequestOptions{
-		UserAgent: userAgent,
-	})
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode != 200 {
-		return errors.New(fmt.Sprintf("resp.StatusCode=%d", resp.StatusCode))
-	}
-
-	doc, err := goquery.NewDocumentFromReader(resp)
-	if err != nil {
-		return err
-	}
-
-	formData := make(map[string]string)
-
-	doc.Find("input.sl").Each(func(i int, s *goquery.Selection) {
-		if val, _ := s.Attr("type"); val == "text" {
-			val, _ = s.Attr("name")
-			formData[val] = username
-		} else if val, _ := s.Attr("type"); val == "password" {
-			val, _ = s.Attr("name")
-			formData[val] = password
-		}
-	})
-
-	doc.Find("input").Each(func(i int, s *goquery.Selection) {
-		name, h1 := s.Attr("name")
-		value, h2 := s.Attr("value")
-		if h1 && h2 && len(value) > 0 {
-			formData[name] = value
-		}
-	})
-
-	Headers := make(map[string]string)
-	Headers["Referer"] = "https://www.v2ex.com/signin"
-	Headers["Content-Type"] = "application/x-www-form-urlencoded"
-	resp, err = Session.Post("https://www.v2ex.com/signin", &requests.RequestOptions{
-		Data:      formData,
-		UserAgent: userAgent,
-		Headers:   Headers,
-	})
-
-	return err
 }
 
 func init() {
@@ -1237,13 +168,11 @@ func init() {
 		log.Panic(err)
 	}
 
-	uiTab = NewTab()
-	uiLog = NewLog()
-	uiUser = NewUser()
-	uiTopic = NewTopicList()
-	uiReply = NewReplyList()
-
-	Session = requests.NewSession(nil)
+	uiTab = g2ex.NewTab()
+	uiLog = g2ex.NewLog()
+	uiUser = g2ex.NewUser()
+	uiTopic = g2ex.NewTopicList(uiTab, uiUser)
+	uiReply = g2ex.NewReplyList()
 }
 
 func main() {
@@ -1271,7 +200,7 @@ func main() {
 	pass := os.Getenv("V2EX_PASS")
 	if len(user) > 0 && len(pass) > 0 {
 		/*
-			if err := login(user, pass); err != nil {
+			if err := g2ex.Login(user, pass); err != nil {
 				log.Println(err)
 			}
 		*/
@@ -1279,10 +208,10 @@ func main() {
 		log.Println("$V2EX_NAME or $V2EX_PASS is empty")
 	}
 
-	switchState(StateTab)
+	switchState(g2ex.StateTab)
 	// 这里来回切换状态是为了在开始时候即对UIRow进行初始化(align, inner...)
-	switchState(BodyStateReply)
-	switchState(BodyStateTopic)
+	switchState(g2ex.BodyStateReply)
+	switchState(g2ex.BodyStateTopic)
 
 	ui.Handle("/sys/kbd/C-q", func(ui.Event) {
 		ui.StopLoop()
@@ -1293,8 +222,8 @@ func main() {
 		} else {
 			now := time.Now().Unix()
 			if now-LastCtrlW <= 2 {
-				state := (CurrState + 1) % StateMax
-				if state == StateDefault {
+				state := (CurrState + 1) % g2ex.StateMax
+				if state == g2ex.StateDefault {
 					state++
 				}
 				switchState(state)
@@ -1305,15 +234,15 @@ func main() {
 		}
 	})
 	ui.Handle("/sys/kbd/C-t", func(ui.Event) {
-		if CurrState != StateTab {
-			switchState(StateTab)
+		if CurrState != g2ex.StateTab {
+			switchState(g2ex.StateTab)
 		} else {
-			switchState(StateDefault)
+			switchState(g2ex.StateDefault)
 		}
 	})
 	ui.Handle("/sys/kbd/C-r", func(ui.Event) {
-		if CurrState == StateBody {
-			if CurrBodyState == BodyStateTopic {
+		if CurrState == g2ex.StateBody {
+			if CurrBodyState == g2ex.BodyStateTopic {
 				uiTopic.Fresh(uiTab.GetTabNode())
 			} else {
 				uiReply.Fresh(nil, false)
@@ -1321,7 +250,7 @@ func main() {
 		}
 	})
 	ui.Handle("/sys/kbd/C-f", func(ui.Event) {
-		if CurrBodyState == BodyStateReply {
+		if CurrBodyState == g2ex.BodyStateReply {
 			if uiReply.PageDown() {
 			}
 		} else {
@@ -1331,7 +260,7 @@ func main() {
 		}
 	})
 	ui.Handle("/sys/kbd/C-b", func(ui.Event) {
-		if CurrBodyState == BodyStateReply {
+		if CurrBodyState == g2ex.BodyStateReply {
 			if !uiReply.PageUp() {
 				uiReply.LoadPrev()
 			}
@@ -1340,7 +269,7 @@ func main() {
 		}
 	})
 	ui.Handle("/sys/kbd/C-e", func(ui.Event) {
-		if CurrBodyState == BodyStateReply {
+		if CurrBodyState == g2ex.BodyStateReply {
 			uiReply.ScrollDown()
 		} else {
 			if !uiTopic.ScrollDown() {
@@ -1349,7 +278,7 @@ func main() {
 		}
 	})
 	ui.Handle("/sys/kbd/C-y", func(ui.Event) {
-		if CurrBodyState == BodyStateReply {
+		if CurrBodyState == g2ex.BodyStateReply {
 			if !uiReply.ScrollUp() {
 				uiReply.LoadPrev()
 			}
@@ -1358,25 +287,25 @@ func main() {
 		}
 	})
 	ui.Handle("/sys/kbd/C-p", func(ui.Event) {
-		if CurrBodyState == BodyStateReply {
-			switchState(BodyStateTopic)
+		if CurrBodyState == g2ex.BodyStateReply {
+			switchState(g2ex.BodyStateTopic)
 		} else {
-			switchState(BodyStateReply)
+			switchState(g2ex.BodyStateReply)
 		}
 	})
 	ui.Handle("/sys/kbd/C-i", func(ui.Event) {
-		if CurrBodyState == BodyStateTopic {
-			switchState(BodyStateReply)
+		if CurrBodyState == g2ex.BodyStateTopic {
+			switchState(g2ex.BodyStateReply)
 		}
 	})
 	ui.Handle("/sys/kbd/C-o", func(ui.Event) {
-		if CurrBodyState == BodyStateReply {
-			switchState(BodyStateTopic)
+		if CurrBodyState == g2ex.BodyStateReply {
+			switchState(g2ex.BodyStateTopic)
 		}
 	})
 	ui.Handle("/sys/kbd", handleKey)
 	ui.Handle("/sys/kbd/C-l", func(e ui.Event) {
-		if CurrBodyState == BodyStateReply {
+		if CurrBodyState == g2ex.BodyStateReply {
 			if uiReply.Height == ui.TermHeight()-uiTab.Height {
 				uiReply.Height = ui.TermHeight() - uiLog.Height - uiTab.Height
 			} else {
@@ -1404,7 +333,7 @@ func main() {
 		if firstLoad {
 			firstLoad = false
 			uiTopic.Fresh(uiTab.GetTabNode())
-			switchState(BodyStateTopic)
+			switchState(g2ex.BodyStateTopic)
 		}
 	})
 	ui.Loop()
