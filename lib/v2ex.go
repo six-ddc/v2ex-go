@@ -19,20 +19,6 @@ func init() {
 
 func Login(username, password string) error {
 
-	/*
-		ui.Close()
-		reply := &ReplyList{}
-		// ParseReply("https://www.v2ex.com/t/296412", reply)
-		ParseReply("https://www.v2ex.com/t/296493", reply)
-		for _, content := range reply.Content {
-			log.Println(content)
-		}
-		log.Println(reply.Lz, reply.PostTime, reply.ClickNum)
-
-		os.Exit(1)
-		return nil
-	*/
-
 	resp, err := Session.Get("https://www.v2ex.com/signin", &requests.RequestOptions{
 		UserAgent: UserAgent,
 	})
@@ -119,7 +105,6 @@ func ParseTopicByTab(tab string, uInfo *UserInfo, tabList [][]string) (ret []Top
 		}
 	}
 	log.Println("UserInfo", uInfo)
-	tabList = [][]string{{}, {}}
 	doc.Find("div.box div.cell").Each(func(i int, s *goquery.Selection) {
 		if s.Next().HasClass("cell item") && s.Prev().HasClass("inner") {
 			s.Find("a").Each(func(i int, s *goquery.Selection) {

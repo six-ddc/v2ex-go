@@ -24,3 +24,4 @@ _testmain.go
 *.prof
 
 v2ex-go
+config.ini

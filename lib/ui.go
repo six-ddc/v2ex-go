@@ -139,13 +139,16 @@ type UILog struct {
 func NewLog() *UILog {
 	l := &UILog{Index: 0, Label: "Log [C-l]"}
 	l.List = *ui.NewList()
-	l.Height = 5
+	l.Height = 3 + 2
 	l.BorderLabel = l.Label
 	l.Items = make([]string, l.Height-2)
 	return l
 }
 
 func (l *UILog) Write(p []byte) (n int, err error) {
+	if len(l.Items) == 0 {
+		return 0, nil
+	}
 	str := fmt.Sprintf("[%d] %s", l.Index+1, p)
 	if l.Items[len(l.Items)-1] != "" {
 		i := 0
@@ -174,7 +177,7 @@ type UIUser struct {
 func NewUser() *UIUser {
 	u := &UIUser{User: &UserInfo{}}
 	u.List = *ui.NewList()
-	u.Height = 5
+	u.Height = 3 + 2
 	u.Items = make([]string, u.Height-2)
 	return u
 }
@@ -189,6 +192,7 @@ func (u *UIUser) Fresh() {
 		} else {
 			u.Items[2] = fmt.Sprintf("%d %s", u.User.Notify, balance)
 		}
+		ui.Render(u)
 	}
 }
 
@@ -382,9 +386,11 @@ func (l *UITopicList) Fresh(cate, node string) {
 	} else {
 		l.Name = cate
 		l.Type = TopicTab
-		tabList := [][]string{}
+		tabList := [][]string{{}, {}}
 		l.AllTopicInfo = ParseTopicByTab(l.Name, l.uiUser.User, tabList)
+		l.uiUser.Fresh()
 		l.uiTab.ChildList[l.uiTab.CurrTab] = tabList
+		l.uiTab.ResetTabList()
 	}
 	l.DrawTopic()
 	l.UpdateLabel()
@@ -512,14 +518,14 @@ func (l *UIReplyList) Fresh(topic *TopicInfo, addToHead bool) {
 	}
 	log.Println("addToHead", addToHead)
 	items := []string{"\n"}
-	text := WrapString(l.Topic.Title, l.InnerWidth()-1)
+	text := WrapString(l.Topic.Title, l.InnerWidth())
 	items = append(items, strings.Split(text, "\n")...)
 	items = append(items, "\n")
 	if len(l.Reply.Content) > 0 {
 		items = append(items, strings.Repeat("=", l.InnerWidth()-1))
 	}
 	for i, content := range l.Reply.Content {
-		text := WrapString(content, l.InnerWidth()-1)
+		text := WrapString(content, l.InnerWidth())
 		items = append(items, strings.Split(text, "\n")...)
 		if i != len(l.Reply.Content)-1 {
 			items = append(items, strings.Repeat("-", l.InnerWidth()-1))
@@ -536,7 +542,7 @@ func (l *UIReplyList) Fresh(topic *TopicInfo, addToHead bool) {
 		} else {
 			items = append(items, fmt.Sprintf("[%d](fg-blue) [%s](fg-green) %s", rep.Floor, rep.Member, source))
 		}
-		text := WrapString(rep.Reply, l.InnerWidth()-1)
+		text := WrapString(rep.Reply, l.InnerWidth())
 		text = strings.Replace(text, "@"+l.Reply.Lz, fmt.Sprintf("[@%s](fg-cyan)", l.Reply.Lz), 1)
 		items = append(items, strings.Split(text, "\n")...)
 		if i != len(l.Reply.List)-1 {

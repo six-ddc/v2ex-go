@@ -2,7 +2,9 @@ package g2ex
 
 import (
 	"bytes"
+	"github.com/go-ini/ini"
 	rw "github.com/mattn/go-runewidth"
+	"strings"
 )
 
 type State int
@@ -103,7 +105,8 @@ func WrapString(str string, limit int) string {
 		if ch == '\n' {
 			wid = 0
 		} else {
-			if wid+w > limit {
+			// ui.Lise的最后一个rune会被显示...
+			if wid+w >= limit-3 {
 				buf.WriteRune('\n')
 				wid = 0
 			} else {
@@ -113,4 +116,64 @@ func WrapString(str string, limit int) string {
 		buf.WriteRune(ch)
 	}
 	return buf.String()
+}
+
+var iniCfg *ini.File
+
+func SetConfFile(f string) (err error) {
+	iniCfg, err = ini.Load(f)
+	return err
+}
+
+func GetConfString(secKey string, defau string) string {
+	if iniCfg == nil {
+		return defau
+	}
+	sk := strings.Split(secKey, ".")
+	s, k := sk[0], sk[1]
+	sec, err := iniCfg.GetSection(s)
+	if err != nil {
+		return defau
+	}
+	key, err := sec.GetKey(k)
+	if err != nil {
+		return defau
+	}
+	return key.String()
+}
+
+func GetConfInt(secKey string, defau int) int {
+	if iniCfg == nil {
+		return defau
+	}
+	sk := strings.Split(secKey, ".")
+	s, k := sk[0], sk[1]
+	sec, err := iniCfg.GetSection(s)
+	if err != nil {
+		return defau
+	}
+	key, err := sec.GetKey(k)
+	if err != nil {
+		return defau
+	}
+	i, _ := key.Int()
+	return i
+}
+
+func GetConfBool(secKey string, defau bool) bool {
+	if iniCfg == nil {
+		return defau
+	}
+	sk := strings.Split(secKey, ".")
+	s, k := sk[0], sk[1]
+	sec, err := iniCfg.GetSection(s)
+	if err != nil {
+		return defau
+	}
+	key, err := sec.GetKey(k)
+	if err != nil {
+		return defau
+	}
+	b, _ := key.Bool()
+	return b
 }

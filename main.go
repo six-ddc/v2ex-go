@@ -5,7 +5,6 @@ import (
 	ui "github.com/six-ddc/termui"
 	"github.com/six-ddc/v2ex-go/lib"
 	"log"
-	"os"
 	"time"
 )
 
@@ -25,7 +24,7 @@ var (
 )
 
 func switchState(st g2ex.State) {
-	log.Println(st, CurrState, CurrBodyState)
+	log.Println("st", st, "CurrState", CurrState, "CurrBodyState", CurrBodyState)
 	if st == g2ex.BodyStateReply {
 		if CurrBodyState != g2ex.BodyStateReply {
 			ui.Body.Rows[1] = ReplyRows
@@ -173,14 +172,25 @@ func init() {
 	uiUser = g2ex.NewUser()
 	uiTopic = g2ex.NewTopicList(uiTab, uiUser)
 	uiReply = g2ex.NewReplyList()
+
+	g2ex.SetConfFile("config.ini")
+}
+
+func uiResize() {
+	ui.Body.Width = ui.TermWidth()
+	if g2ex.GetConfBool("ui.enable_log", false) {
+		uiTopic.Height = ui.TermHeight() - uiLog.Height - uiTab.Height
+	} else {
+		uiTopic.Height = ui.TermHeight() - uiTab.Height
+	}
+	uiReply.Height = uiTopic.Height
 }
 
 func main() {
 
 	defer ui.Close()
 
-	uiTopic.Height = ui.TermHeight() - uiLog.Height - uiTab.Height
-	uiReply.Height = uiTopic.Height
+	uiResize()
 
 	TopicRows = ui.NewCol(12, 0, uiTopic)
 	ReplyRows = ui.NewCol(12, 0, uiReply)
@@ -196,14 +206,12 @@ func main() {
 
 	log.SetOutput(uiLog)
 
-	user := os.Getenv("V2EX_NAME")
-	pass := os.Getenv("V2EX_PASS")
+	user := g2ex.GetConfString("user.name", "")
+	pass := g2ex.GetConfString("user.pass", "")
 	if len(user) > 0 && len(pass) > 0 {
-		/*
-			if err := g2ex.Login(user, pass); err != nil {
-				log.Println(err)
-			}
-		*/
+		if err := g2ex.Login(user, pass); err != nil {
+			log.Println(err)
+		}
 	} else {
 		log.Println("$V2EX_NAME or $V2EX_PASS is empty")
 	}
@@ -213,10 +221,10 @@ func main() {
 	switchState(g2ex.BodyStateReply)
 	switchState(g2ex.BodyStateTopic)
 
-	ui.Handle("/sys/kbd/C-q", func(ui.Event) {
+	ui.Handle("/sys/kbd/"+g2ex.GetConfString("key.quit", "C-q"), func(ui.Event) {
 		ui.StopLoop()
 	})
-	ui.Handle("/sys/kbd/C-w", func(ui.Event) {
+	ui.Handle("/sys/kbd/"+g2ex.GetConfString("key.switch", "C-w"), func(ui.Event) {
 		if LastCtrlW == 0 {
 			LastCtrlW = time.Now().Unix()
 		} else {
@@ -233,14 +241,14 @@ func main() {
 			}
 		}
 	})
-	ui.Handle("/sys/kbd/C-t", func(ui.Event) {
+	ui.Handle("/sys/kbd/"+g2ex.GetConfString("key.tab", "C-t"), func(ui.Event) {
 		if CurrState != g2ex.StateTab {
 			switchState(g2ex.StateTab)
 		} else {
 			switchState(g2ex.StateDefault)
 		}
 	})
-	ui.Handle("/sys/kbd/C-r", func(ui.Event) {
+	ui.Handle("/sys/kbd/"+g2ex.GetConfString("key.update", "C-r"), func(ui.Event) {
 		if CurrState == g2ex.StateBody {
 			if CurrBodyState == g2ex.BodyStateTopic {
 				uiTopic.Fresh(uiTab.GetTabNode())
@@ -249,7 +257,7 @@ func main() {
 			}
 		}
 	})
-	ui.Handle("/sys/kbd/C-f", func(ui.Event) {
+	ui.Handle("/sys/kbd/"+g2ex.GetConfString("key.pagedown", "C-f"), func(ui.Event) {
 		if CurrBodyState == g2ex.BodyStateReply {
 			if uiReply.PageDown() {
 			}
@@ -259,7 +267,7 @@ func main() {
 			}
 		}
 	})
-	ui.Handle("/sys/kbd/C-b", func(ui.Event) {
+	ui.Handle("/sys/kbd/"+g2ex.GetConfString("key.pageup", "C-b"), func(ui.Event) {
 		if CurrBodyState == g2ex.BodyStateReply {
 			if !uiReply.PageUp() {
 				uiReply.LoadPrev()
@@ -268,7 +276,7 @@ func main() {
 			uiTopic.PageUp()
 		}
 	})
-	ui.Handle("/sys/kbd/C-e", func(ui.Event) {
+	ui.Handle("/sys/kbd/"+g2ex.GetConfString("key.scrolldown", "C-e"), func(ui.Event) {
 		if CurrBodyState == g2ex.BodyStateReply {
 			uiReply.ScrollDown()
 		} else {
@@ -277,7 +285,7 @@ func main() {
 			}
 		}
 	})
-	ui.Handle("/sys/kbd/C-y", func(ui.Event) {
+	ui.Handle("/sys/kbd/"+g2ex.GetConfString("key.scrollup", "C-y"), func(ui.Event) {
 		if CurrBodyState == g2ex.BodyStateReply {
 			if !uiReply.ScrollUp() {
 				uiReply.LoadPrev()
@@ -286,25 +294,26 @@ func main() {
 			uiTopic.ScrollUp()
 		}
 	})
-	ui.Handle("/sys/kbd/C-p", func(ui.Event) {
+	ui.Handle("/sys/kbd/"+g2ex.GetConfString("key.topic2reply", "C-p"), func(ui.Event) {
 		if CurrBodyState == g2ex.BodyStateReply {
 			switchState(g2ex.BodyStateTopic)
 		} else {
 			switchState(g2ex.BodyStateReply)
 		}
 	})
-	ui.Handle("/sys/kbd/C-i", func(ui.Event) {
-		if CurrBodyState == g2ex.BodyStateTopic {
-			switchState(g2ex.BodyStateReply)
-		}
-	})
-	ui.Handle("/sys/kbd/C-o", func(ui.Event) {
-		if CurrBodyState == g2ex.BodyStateReply {
-			switchState(g2ex.BodyStateTopic)
-		}
-	})
-	ui.Handle("/sys/kbd", handleKey)
-	ui.Handle("/sys/kbd/C-l", func(e ui.Event) {
+	/*
+		ui.Handle("/sys/kbd/C-i", func(ui.Event) {
+			if CurrBodyState == g2ex.BodyStateTopic {
+				switchState(g2ex.BodyStateReply)
+			}
+		})
+		ui.Handle("/sys/kbd/C-o", func(ui.Event) {
+			if CurrBodyState == g2ex.BodyStateReply {
+				switchState(g2ex.BodyStateTopic)
+			}
+		})
+	*/
+	ui.Handle("/sys/kbd/"+g2ex.GetConfString("key.log", "C-l"), func(e ui.Event) {
 		if CurrBodyState == g2ex.BodyStateReply {
 			if uiReply.Height == ui.TermHeight()-uiTab.Height {
 				uiReply.Height = ui.TermHeight() - uiLog.Height - uiTab.Height
@@ -321,10 +330,9 @@ func main() {
 		ui.Body.Align()
 		ui.Render(ui.Body)
 	})
+	ui.Handle("/sys/kbd", handleKey)
 	ui.Handle("/sys/wnd/resize", func(e ui.Event) {
-		ui.Body.Width = ui.TermWidth()
-		uiTopic.Height = ui.TermHeight() - uiLog.Height - uiTab.Height
-		uiReply.Height = uiTopic.Height
+		uiResize()
 		ui.Body.Align()
 		ui.Render(ui.Body)
 	})
