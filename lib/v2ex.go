@@ -233,6 +233,20 @@ func ParseReply(url string, reply *ReplyList) error {
 	if err != nil {
 		return err
 	}
+
+	head := doc.Find("div.header small.gray").Text()
+	head = strings.Replace(head, string([]rune{0xA0}), "", -1)
+	head = strings.Replace(head, " ", "", -1)
+	headList := strings.Split(head, "·")
+	if len(headList) != 3 {
+		// 这里好像是部分帖子需要登录才能浏览
+		// https://www.v2ex.com/t/297344#reply12
+		return errors.New("maybe need to login...")
+	}
+	reply.Lz = headList[0]
+	reply.PostTime = headList[1]
+	reply.ClickNum = headList[2]
+
 	doc.Find("div.topic_content").Each(func(i int, sel *goquery.Selection) {
 		selMD := sel.Find("div.markdown_body")
 		contentList := []string{}
@@ -355,14 +369,6 @@ func ParseReply(url string, reply *ReplyList) error {
 			reply.Content = append(reply.Content, content)
 		}
 	})
-
-	head := doc.Find("small.gray").Text()
-	head = strings.Replace(head, string([]rune{0xA0}), "", -1)
-	head = strings.Replace(head, " ", "", -1)
-	headList := strings.Split(head, "·")
-	reply.Lz = headList[0]
-	reply.PostTime = headList[1]
-	reply.ClickNum = headList[2]
 
 	doc.Find("div#Main div.box").Find("div").Each(func(i int, sel *goquery.Selection) {
 		idAttr, has := sel.Attr("id")
