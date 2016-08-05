@@ -108,8 +108,8 @@ func handleKey(e ui.Event) {
 					uiTopic.UpdateLabel()
 				}
 			}
-		}
-		if key == "<escape>" || key == "C-c" || key == "C-u" {
+		} else if key == "<escape>" || key == "C-8" || key == "C-c" {
+			// 这里可能是bug，C-8其实是<delete>
 			g2ex.MatchIndex = 0
 			g2ex.ShortKeys = g2ex.ShortKeys[:0]
 			if CurrState == g2ex.StateTab {
@@ -119,8 +119,7 @@ func handleKey(e ui.Event) {
 				uiTopic.MatchTopic()
 				uiTopic.UpdateLabel()
 			}
-		}
-		if key == "C-n" && len(g2ex.MatchList) > 0 {
+		} else if key == g2ex.GetConfString("key.next", "C-n") && len(g2ex.MatchList) > 0 {
 			g2ex.MatchIndex++
 			g2ex.MatchIndex = g2ex.MatchIndex % len(g2ex.MatchList)
 			if CurrState == g2ex.StateTab {
@@ -128,8 +127,7 @@ func handleKey(e ui.Event) {
 			} else {
 				uiTopic.MatchTopic()
 			}
-		}
-		if key == "<enter>" {
+		} else if key == g2ex.GetConfString("key.enter", "<enter>") {
 			if CurrState == g2ex.StateTab {
 				uiTab.CurrChildTab = -1
 				if len(g2ex.MatchList) > 0 {
@@ -301,18 +299,17 @@ func main() {
 			switchState(g2ex.BodyStateReply)
 		}
 	})
-	/*
-		ui.Handle("/sys/kbd/C-i", func(ui.Event) {
-			if CurrBodyState == g2ex.BodyStateTopic {
-				switchState(g2ex.BodyStateReply)
-			}
-		})
-		ui.Handle("/sys/kbd/C-o", func(ui.Event) {
-			if CurrBodyState == g2ex.BodyStateReply {
-				switchState(g2ex.BodyStateTopic)
-			}
-		})
-	*/
+	// 这里其实是C-i
+	ui.Handle("/sys/kbd/<tab>", func(ui.Event) {
+		if CurrBodyState == g2ex.BodyStateTopic {
+			switchState(g2ex.BodyStateReply)
+		}
+	})
+	ui.Handle("/sys/kbd/C-o", func(ui.Event) {
+		if CurrBodyState == g2ex.BodyStateReply {
+			switchState(g2ex.BodyStateTopic)
+		}
+	})
 	ui.Handle("/sys/kbd/"+g2ex.GetConfString("key.log", "C-l"), func(e ui.Event) {
 		if CurrBodyState == g2ex.BodyStateReply {
 			if uiReply.Height == ui.TermHeight()-uiTab.Height {
