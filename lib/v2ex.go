@@ -122,6 +122,8 @@ func ParseTopicByTab(tab string, uInfo *UserInfo, tabList [][]string) (ret []Top
 		topic := TopicInfo{}
 		title := s.Find(".item_title a")
 		topic.Title = title.Text()
+		topic.Title = strings.Replace(topic.Title, "[", "<", -1)
+		topic.Title = strings.Replace(topic.Title, "]", ">", -1)
 		topic.Url, _ = title.Attr("href")
 		topic.Url = "https://www.v2ex.com" + topic.Url
 		info := s.Find(".small.fade").Text()
@@ -180,6 +182,8 @@ func ParseTopicByNode(node string, page int) (ret []TopicInfo) {
 		topic := TopicInfo{}
 		title := s.Find(".item_title a")
 		topic.Title = title.Text()
+		topic.Title = strings.Replace(topic.Title, "[", "<", -1)
+		topic.Title = strings.Replace(topic.Title, "]", ">", -1)
 		topic.Url, _ = title.Attr("href")
 		topic.Url = "https://www.v2ex.com" + topic.Url
 		infoList := strings.Split(info, "•")

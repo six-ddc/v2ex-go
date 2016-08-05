@@ -433,18 +433,13 @@ func (l *UITopicList) DrawTopic() {
 		title_witth := rw.StringWidth(title)
 		var suffix string
 		// if len(info.Time) > 0 {
-		if len(info.Time) < 0 {
-			if l.Type == TopicTab {
-				suffix = fmt.Sprintf("[<%d>](fg-bold,fg-blue) %s %s [%s](fg-green)", info.ReplyCount, info.Node, info.Time, info.Author)
-			} else {
-				suffix = fmt.Sprintf("[<%d>](fg-bold,fg-blue) %s [%s](fg-green)", info.ReplyCount, info.Time, info.Author)
-			}
+		if l.Type == TopicTab {
+			suffix = fmt.Sprintf("[<%d>](fg-bold,fg-blue) %s [%s](fg-green)", info.ReplyCount, info.Node, info.Author)
 		} else {
-			if l.Type == TopicTab {
-				suffix = fmt.Sprintf("[<%d>](fg-bold,fg-blue) %s [%s](fg-green)", info.ReplyCount, info.Node, info.Author)
-			} else {
-				suffix = fmt.Sprintf("[<%d>](fg-bold,fg-blue) [%s](fg-green)", info.ReplyCount, info.Author)
-			}
+			suffix = fmt.Sprintf("[<%d>](fg-bold,fg-blue) [%s](fg-green)", info.ReplyCount, info.Author)
+		}
+		if info.Author == "susiemaoo" {
+			log.Println(suffix)
 		}
 		suffix_width := rw.StringWidth(suffix) - rw.StringWidth("[](fg-bold,fg-blue)[](fg-green)")
 		space_width := l.InnerWidth() - 1 - (prefix_width + suffix_width + title_witth)
