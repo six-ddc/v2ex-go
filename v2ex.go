@@ -265,7 +265,6 @@ func ParseReply(url string, reply *ReplyList) error {
 									} else {
 										pList = append(pList, fmt.Sprintf("<%s>(%s)", text, href))
 									}
-									pList = append(pList, text)
 								} else if cnode.Data == "img" {
 									for _, attr := range cnode.Attr {
 										if attr.Key == "src" {
