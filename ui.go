@@ -69,7 +69,7 @@ func (l *ScrollList) Highlight(b bool) {
 
 func (l *ScrollList) ResetBgColor() {
 	l.ItemBg = make([]ui.Attribute, len(l.Items))
-	for i, _ := range l.ItemBg {
+	for i := range l.ItemBg {
 		l.ItemBg[i] = ui.ThemeAttr("list.item.bg")
 	}
 	ui.Render(l)
@@ -77,8 +77,8 @@ func (l *ScrollList) ResetBgColor() {
 
 func (l *ScrollList) ScrollDown() bool {
 	sz := len(l.AllItems)
-	screen_heigth := l.InnerHeight()
-	if sz > screen_heigth+l.Index {
+	screenHeigth := l.InnerHeight()
+	if sz > screenHeigth+l.Index {
 		l.ResetBgColor()
 		l.Index++
 		l.SetAllItems(l.AllItems)
@@ -90,11 +90,11 @@ func (l *ScrollList) ScrollDown() bool {
 
 func (l *ScrollList) PageDown() bool {
 	sz := len(l.AllItems)
-	screen_heigth := l.InnerHeight()
-	if sz < screen_heigth {
+	screenHeigth := l.InnerHeight()
+	if sz < screenHeigth {
 		return false
 	}
-	index := l.Index + screen_heigth
+	index := l.Index + screenHeigth
 	if index >= sz {
 		return false
 	}
@@ -108,8 +108,8 @@ func (l *ScrollList) PageUp() bool {
 	if l.Index == 0 {
 		return false
 	}
-	screen_heigth := l.InnerHeight()
-	index := l.Index - screen_heigth
+	screenHeigth := l.InnerHeight()
+	index := l.Index - screenHeigth
 	if index < 0 {
 		index = 0
 	}
@@ -186,9 +186,9 @@ func (u *UIUser) Fresh() {
 	if len(u.User.Name) > 0 {
 		u.Items[0] = fmt.Sprintf("[%s](fg-green)", u.User.Name)
 		balance := fmt.Sprintf("%d/%d", u.User.Silver, u.User.Bronze)
-		space_width := u.InnerWidth() - 1 - rw.StringWidth(u.User.Notify) - rw.StringWidth(balance)
-		if space_width > 0 {
-			u.Items[2] = fmt.Sprintf("%s%s%s", u.User.Notify, strings.Repeat(" ", space_width), balance)
+		spaceWidth := u.InnerWidth() - 1 - rw.StringWidth(u.User.Notify) - rw.StringWidth(balance)
+		if spaceWidth > 0 {
+			u.Items[2] = fmt.Sprintf("%s%s%s", u.User.Notify, strings.Repeat(" ", spaceWidth), balance)
 		} else {
 			u.Items[2] = fmt.Sprintf("%d %s", u.User.Notify, balance)
 		}
@@ -354,9 +354,9 @@ func (l *UITopicList) MatchTopic() {
 	log.Println("+", len(l.Items), len(l.AllItems), l.Index)
 	for i := 0; i < len(l.Items); i++ {
 		item := l.AllItems[i+l.Index]
-		match_str := []byte(item)[:10]
-		str := MatchKey(match_str, ShortKeys)
-		if str != string(match_str) {
+		matchStr := []byte(item)[:10]
+		str := MatchKey(matchStr, ShortKeys)
+		if str != string(matchStr) {
 			if count == MatchIndex {
 				l.SetBgColor(i, ui.ColorRed)
 			} else {
@@ -402,7 +402,7 @@ func (l *UITopicList) LoadNext() {
 		// tab 不支持翻页
 		return
 	}
-	l.Page += 1
+	l.Page++
 	name := l.Name
 	log.Println(l.Name, l.Page)
 	ResetMatch()
@@ -428,9 +428,9 @@ func (l *UITopicList) DrawTopic() {
 	lst := make([]string, len(l.AllTopicInfo))
 	for i, info := range l.AllTopicInfo {
 		prefix := fmt.Sprintf("<%02d> <%s> ", i, randID())
-		prefix_width := rw.StringWidth(prefix)
+		prefixWidth := rw.StringWidth(prefix)
 		title := info.Title
-		title_witth := rw.StringWidth(title)
+		titleWitth := rw.StringWidth(title)
 		var suffix string
 		// if len(info.Time) > 0 {
 		if l.Type == TopicTab {
@@ -441,27 +441,27 @@ func (l *UITopicList) DrawTopic() {
 		if info.Author == "susiemaoo" {
 			log.Println(suffix)
 		}
-		suffix_width := rw.StringWidth(suffix) - rw.StringWidth("[](fg-bold,fg-blue)[](fg-green)")
-		space_width := l.InnerWidth() - 1 - (prefix_width + suffix_width + title_witth)
-		if space_width < 0 {
-			trim_width := l.InnerWidth() - 1 - prefix_width - suffix_width
-			title_rune := []rune(title)
+		suffixWidth := rw.StringWidth(suffix) - rw.StringWidth("[](fg-bold,fg-blue)[](fg-green)")
+		spaceWidth := l.InnerWidth() - 1 - (prefixWidth + suffixWidth + titleWitth)
+		if spaceWidth < 0 {
+			trimWidth := l.InnerWidth() - 1 - prefixWidth - suffixWidth
+			titleRune := []rune(title)
 			w := 0
-			ellip_widh := rw.StringWidth("…")
-			for i, ch := range title_rune {
+			ellipWidh := rw.StringWidth("…")
+			for i, ch := range titleRune {
 				w += rw.RuneWidth(ch)
-				if w > trim_width-ellip_widh {
+				if w > trimWidth-ellipWidh {
 					if i > 0 {
-						title = string(title_rune[:i]) + "…"
+						title = string(titleRune[:i]) + "…"
 					} else {
 						title = ""
 					}
 					break
 				}
 			}
-			space_width = 0
+			spaceWidth = 0
 		}
-		lst[i] = fmt.Sprintf("%s%s%s%s", prefix, title, strings.Repeat(" ", space_width), suffix)
+		lst[i] = fmt.Sprintf("%s%s%s%s", prefix, title, strings.Repeat(" ", spaceWidth), suffix)
 	}
 	l.SetAllItems(lst)
 }

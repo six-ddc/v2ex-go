@@ -26,7 +26,7 @@ func Login(username, password string) error {
 		return err
 	}
 	if resp.StatusCode != 200 {
-		return errors.New(fmt.Sprintf("resp.StatusCode=%d", resp.StatusCode))
+		return fmt.Errorf("resp.StatusCode=%d", resp.StatusCode)
 	}
 
 	doc, err := goquery.NewDocumentFromReader(resp)
@@ -216,7 +216,7 @@ func ParseReply(url string, reply *ReplyList) error {
 	}
 	defer log.Println(url, "status_code", resp.StatusCode)
 	if resp.StatusCode != 200 {
-		return errors.New(fmt.Sprintf("resp.StatusCode=%d", resp.StatusCode))
+		return fmt.Errorf("resp.StatusCode=%d", resp.StatusCode)
 	}
 	doc, err := goquery.NewDocumentFromReader(resp)
 	if err != nil {
@@ -230,7 +230,7 @@ func ParseReply(url string, reply *ReplyList) error {
 	if len(headList) != 3 {
 		// 这里好像是部分帖子需要登录才能浏览
 		// https://www.v2ex.com/t/297344#reply12
-		return errors.New("maybe need to login...")
+		return errors.New("maybe need to login")
 	}
 	reply.Lz = headList[0]
 	reply.PostTime = headList[1]

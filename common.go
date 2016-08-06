@@ -62,22 +62,22 @@ const (
 	TopicNode
 )
 
-var UserAgent string = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/52.0.2743.82 Safari/537.36"
+var UserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/52.0.2743.82 Safari/537.36"
 
 func MatchKey(str, key []byte) string {
-	color_rc := "[c](fg-green)"
-	color_bytes := []byte(color_rc)
-	key_map := make(map[byte]uint16)
+	colorRc := "[c](fg-green)"
+	colorBytes := []byte(colorRc)
+	keyMap := make(map[byte]uint16)
 	for _, c := range key {
-		key_map[c]++
+		keyMap[c]++
 	}
-	name_map := make(map[byte]uint16)
+	nameMap := make(map[byte]uint16)
 	for _, c := range str {
-		name_map[c]++
+		nameMap[c]++
 	}
 	has := true
 	for _, rc := range key {
-		if key_map[rc] > name_map[rc] {
+		if keyMap[rc] > nameMap[rc] {
 			has = false
 			break
 		}
@@ -85,9 +85,9 @@ func MatchKey(str, key []byte) string {
 	if has && len(ShortKeys) > 0 {
 		short := []byte{}
 		for _, rc := range str {
-			if key_map[rc] != 0 {
-				color_bytes[1] = rc
-				short = append(short, color_bytes...)
+			if keyMap[rc] != 0 {
+				colorBytes[1] = rc
+				short = append(short, colorBytes...)
 			} else {
 				short = append(short, rc)
 			}
