@@ -1,6 +1,6 @@
 ## v2ex-go
 
-![g2ex.gif](http://ww1.sinaimg.cn/large/72f96cbagw1f6jsnh5j1rg20si0in7wi.gif)
+![g2ex.gif](./g2ex.gif)
 
 #### 安装
 
