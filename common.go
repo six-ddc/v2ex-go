@@ -1,4 +1,4 @@
-package g2ex
+package main
 
 import (
 	"bytes"
