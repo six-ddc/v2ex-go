@@ -51,7 +51,7 @@ func switchState(st State) {
 		if CurrBodyState == BodyStateTopic {
 			uiTopic.Highlight(false)
 			uiTopic.UpdateLabel()
-		} else {
+		} else if CurrBodyState == BodyStateReply {
 			uiReply.Highlight(false)
 			uiReply.UpdateLabel()
 		}
@@ -65,7 +65,7 @@ func switchState(st State) {
 		if CurrBodyState == BodyStateTopic {
 			uiTopic.Highlight(false)
 			uiTopic.UpdateLabel()
-		} else {
+		} else if CurrBodyState == BodyStateReply {
 			uiReply.Highlight(false)
 			uiReply.UpdateLabel()
 		}
@@ -79,7 +79,7 @@ func switchState(st State) {
 		if CurrBodyState == BodyStateTopic {
 			uiTopic.Highlight(true)
 			uiTopic.UpdateLabel()
-		} else {
+		} else if CurrBodyState == BodyStateReply {
 			uiReply.Highlight(true)
 			uiReply.UpdateLabel()
 		}
@@ -249,7 +249,7 @@ func main() {
 		if CurrState == StateBody {
 			if CurrBodyState == BodyStateTopic {
 				uiTopic.Fresh(uiTab.GetTabNode())
-			} else {
+			} else if CurrBodyState == BodyStateReply {
 				uiReply.Fresh(nil, false)
 			}
 		}
@@ -258,7 +258,7 @@ func main() {
 		if CurrBodyState == BodyStateReply {
 			if uiReply.PageDown() {
 			}
-		} else {
+		} else if CurrBodyState == BodyStateTopic {
 			if !uiTopic.PageDown() {
 				uiTopic.LoadNext()
 			}
@@ -269,14 +269,14 @@ func main() {
 			if !uiReply.PageUp() {
 				uiReply.LoadPrev()
 			}
-		} else {
+		} else if CurrBodyState == BodyStateTopic {
 			uiTopic.PageUp()
 		}
 	})
 	ui.Handle("/sys/kbd/"+GetConfString("key.scrolldown", "C-e"), func(ui.Event) {
 		if CurrBodyState == BodyStateReply {
 			uiReply.ScrollDown()
-		} else {
+		} else if CurrBodyState == BodyStateTopic {
 			if !uiTopic.ScrollDown() {
 				uiTopic.LoadNext()
 			}
@@ -287,14 +287,14 @@ func main() {
 			if !uiReply.ScrollUp() {
 				uiReply.LoadPrev()
 			}
-		} else {
+		} else if CurrBodyState == BodyStateTopic {
 			uiTopic.ScrollUp()
 		}
 	})
 	ui.Handle("/sys/kbd/"+GetConfString("key.topic2reply", "C-p"), func(ui.Event) {
 		if CurrBodyState == BodyStateReply {
 			switchState(BodyStateTopic)
-		} else {
+		} else if CurrBodyState == BodyStateTopic {
 			switchState(BodyStateReply)
 		}
 	})
@@ -316,7 +316,7 @@ func main() {
 			} else {
 				uiReply.Height = ui.TermHeight() - uiTab.Height
 			}
-		} else {
+		} else if CurrBodyState == BodyStateTopic {
 			if uiTopic.Height == ui.TermHeight()-uiTab.Height {
 				uiTopic.Height = ui.TermHeight() - uiLog.Height - uiTab.Height
 			} else {
