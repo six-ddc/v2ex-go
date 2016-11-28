@@ -190,7 +190,7 @@ func (u *UIUser) Fresh() {
 		if spaceWidth > 0 {
 			u.Items[2] = fmt.Sprintf("%s%s%s", u.User.Notify, strings.Repeat(" ", spaceWidth), balance)
 		} else {
-			u.Items[2] = fmt.Sprintf("%d %s", u.User.Notify, balance)
+			u.Items[2] = fmt.Sprintf("%s %s", u.User.Notify, balance)
 		}
 		ui.Render(u)
 	}
