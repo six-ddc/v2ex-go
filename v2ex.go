@@ -126,7 +126,7 @@ func ParseTopicByTab(tab string, uInfo *UserInfo, tabList [][]string) (ret []Top
 		topic.Title = strings.Replace(topic.Title, "]", ">", -1)
 		topic.Url, _ = title.Attr("href")
 		topic.Url = "https://www.v2ex.com" + topic.Url
-		info := s.Find(".small.fade").Text()
+		info := s.Find(".topic_info").Text()
 		info = strings.Replace(info, " ", "", -1)
 		info = strings.Replace(info, string([]rune{0xA0}), "", -1) // 替换&nbsp
 		infoList := strings.Split(info, "•")
