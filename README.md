@@ -11,6 +11,8 @@ cd $GOPATH/bin
 ./v2ex-go
 ```
 
+* 或者直接下载对应的二进制 [Release包](https://github.com/six-ddc/v2ex-go/releases)
+
 
 #### 使用
 
