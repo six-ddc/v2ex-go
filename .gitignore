@@ -1,27 +1,36 @@
-# Compiled Object files, Static and Dynamic libs (Shared Objects)
-*.o
-*.a
-*.so
-
-# Folders
-_obj
-_test
-
-# Architecture specific extensions/prefixes
-*.[568vq]
-[568vq].out
-
-*.cgo1.go
-*.cgo2.c
-_cgo_defun.c
-_cgo_gotypes.go
-_cgo_export.*
-
-_testmain.go
-
+# Binaries
+v2ex-tui
 *.exe
-*.test
-*.prof
+*.exe~
+*.dll
+*.so
+*.dylib
 
-v2ex-go
-config.ini
+# Test binary
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug logs
+/tmp/v2ex-debug.log
+
+# Test files
+example.html
+
+# Config (user-specific)
+configs/*.local.yaml

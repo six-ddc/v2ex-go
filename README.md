@@ -1,31 +1,90 @@
-## v2ex-go
+# V2EX TUI
 
-![g2ex.gif](./g2ex.gif)
+一个现代化的 V2EX 终端客户端，基于 [Bubble Tea](https://github.com/charmbracelet/bubbletea) 框架构建。
 
-#### 安装
+## 特性
 
-``` shell
-# 由于golang.org被墙，安装时可能需要梯子
-go get github.com/six-ddc/v2ex-go
-cd $GOPATH/bin
-./v2ex-go
+- Vim 风格的键盘导航 (hjkl)
+- 顶部双层导航设计，参考 V2EX 官网布局
+- 支持深色/浅色主题切换
+- 响应式布局，自适应终端窗口
+- 终端超链接支持 (OSC 8)
+- 无限滚动加载回复
+
+## 安装
+
+```bash
+go install github.com/yourname/v2ex-tui@latest
 ```
 
-* 或者直接下载对应的二进制 [Release包](https://github.com/six-ddc/v2ex-go/releases)
+或从源码构建：
 
+```bash
+git clone https://github.com/yourname/v2ex-tui.git
+cd v2ex-tui
+go build -o v2ex-tui
+```
 
-#### 使用
+## 使用
 
-* ~~支持登录，修改[user]配置，然后`C-l`右下角可以查看用户基本信息~~
-* 查看节点，`C-t` 切换到tab栏，然后输入`字母`选择对应的tab和节点，`回车`打开
-* 查看回复，输入`字母`或者`数字编号`选择匹配主题，`C-n`切换结果，`回车`打开
-* 节点翻页，`C-f`滚动到页尾，然后再次`C-f`即加载下一页 （tab主题不支持翻页）
-* 回复翻页，主题回复页面，默认加载最后一页，`C-b`滚动到上一页
-* `C-r`刷新主题或回复页面
-* `C-p`切换主题和回复页面
-* `C-q`退出
+```bash
+./v2ex-tui
+```
 
-更多快捷键，参考`config.default.ini`，里面有所有快捷键的介绍
+## 快捷键
 
-也可以重命名为`config.ini`，并拷贝到执行文件所在目录，进行自定义配置。
+### 全局
 
+| 快捷键 | 功能 |
+|--------|------|
+| `q` / `Esc` | 返回/退出 |
+| `Tab` | 切换焦点区域 |
+| `Shift+Tab` | 反向切换焦点 |
+| `r` | 刷新当前视图 |
+| `t` | 切换深色/浅色主题 |
+| `?` | 显示帮助 |
+
+### 导航栏
+
+| 快捷键 | 功能 |
+|--------|------|
+| `h` / `←` | 向左切换 |
+| `l` / `→` | 向右切换 |
+| `Enter` | 选中当前项 |
+| `1-9, 0` | 快速跳转到对应 Tab |
+
+### 主题列表
+
+| 快捷键 | 功能 |
+|--------|------|
+| `j` / `↓` | 向下移动 |
+| `k` / `↑` | 向上移动 |
+| `Enter` / `l` | 打开帖子 |
+| `g` | 跳到顶部 |
+| `G` | 跳到底部 |
+| `Ctrl+D` | 向下翻半页 |
+| `Ctrl+U` | 向上翻半页 |
+| `Ctrl+F` / `Space` | 向下翻页 |
+| `Ctrl+B` | 向上翻页 |
+
+### 帖子详情
+
+| 快捷键 | 功能 |
+|--------|------|
+| `j/k` | 滚动内容 |
+| `g/G` | 跳到顶部/底部 |
+| `n` | 加载更多回复 |
+| `[/]` | 上一篇/下一篇帖子 |
+| `o` | 在浏览器中打开 |
+| `q` | 返回列表 |
+
+## 依赖
+
+- [Bubble Tea](https://github.com/charmbracelet/bubbletea) - TUI 框架
+- [Lip Gloss](https://github.com/charmbracelet/lipgloss) - 样式库
+- [goquery](https://github.com/PuerkitoBio/goquery) - HTML 解析
+- [resty](https://github.com/go-resty/resty) - HTTP 客户端
+
+## 许可证
+
+MIT License
