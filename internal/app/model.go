@@ -1,10 +1,10 @@
 package app
 
 import (
-	"github.com/six-ddc/v2ex-go/internal/api"
-	"github.com/six-ddc/v2ex-go/internal/model"
-	"github.com/six-ddc/v2ex-go/internal/ui"
-	"github.com/six-ddc/v2ex-go/internal/ui/components"
+	"github.com/six-ddc/v2ex-tui/internal/api"
+	"github.com/six-ddc/v2ex-tui/internal/model"
+	"github.com/six-ddc/v2ex-tui/internal/ui"
+	"github.com/six-ddc/v2ex-tui/internal/ui/components"
 )
 
 // View 当前视图类型

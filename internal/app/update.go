@@ -4,9 +4,9 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/six-ddc/v2ex-go/internal/model"
-	"github.com/six-ddc/v2ex-go/internal/ui"
-	"github.com/six-ddc/v2ex-go/internal/ui/components"
+	"github.com/six-ddc/v2ex-tui/internal/model"
+	"github.com/six-ddc/v2ex-tui/internal/ui"
+	"github.com/six-ddc/v2ex-tui/internal/ui/components"
 )
 
 // Init 初始化

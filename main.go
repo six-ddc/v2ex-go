@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/six-ddc/v2ex-go/internal/app"
+	"github.com/six-ddc/v2ex-tui/internal/app"
 )
 
 func main() {

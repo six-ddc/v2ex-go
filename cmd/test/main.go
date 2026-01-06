@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/six-ddc/v2ex-go/internal/api"
+	"github.com/six-ddc/v2ex-tui/internal/api"
 )
 
 func main() {

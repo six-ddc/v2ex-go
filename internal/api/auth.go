@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/six-ddc/v2ex-go/internal/model"
+	"github.com/six-ddc/v2ex-tui/internal/model"
 )
 
 // GetCurrentUser 获取当前登录用户信息
