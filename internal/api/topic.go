@@ -33,8 +33,14 @@ func (c *Client) GetTopicsByTab(tab string) ([]model.Topic, []model.Node, *model
 	return topics, nodes, user, nil
 }
 
+// NodeTopicsResult 节点主题列表结果
+type NodeTopicsResult struct {
+	Topics     []model.Topic
+	TotalPages int
+}
+
 // GetTopicsByNode 按节点获取主题列表
-func (c *Client) GetTopicsByNode(nodeCode string, page int) ([]model.Topic, error) {
+func (c *Client) GetTopicsByNode(nodeCode string, page int) (*NodeTopicsResult, error) {
 	path := "/go/" + nodeCode
 	if page > 1 {
 		path += "?p=" + strconv.Itoa(page)
@@ -45,7 +51,25 @@ func (c *Client) GetTopicsByNode(nodeCode string, page int) ([]model.Topic, erro
 		return nil, err
 	}
 
-	return parseTopicListByNode(doc, nodeCode), nil
+	topics := parseTopicListByNode(doc, nodeCode)
+	totalPages := parseNodeTotalPages(doc)
+
+	return &NodeTopicsResult{
+		Topics:     topics,
+		TotalPages: totalPages,
+	}, nil
+}
+
+// parseNodeTotalPages 解析节点页面的总页数
+func parseNodeTotalPages(doc *goquery.Document) int {
+	totalPages := 1
+	doc.Find("a.page_normal, a.page_current").Each(func(i int, s *goquery.Selection) {
+		pageNum, _ := strconv.Atoi(strings.TrimSpace(s.Text()))
+		if pageNum > totalPages {
+			totalPages = pageNum
+		}
+	})
+	return totalPages
 }
 
 // GetTopicDetail 获取帖子详情和回复
@@ -189,19 +213,22 @@ func parseTopicListByTab(doc *goquery.Document) []model.Topic {
 func parseTopicListByNode(doc *goquery.Document, nodeCode string) []model.Topic {
 	var topics []model.Topic
 
-	doc.Find("div#TopicsNode div.cell").Each(func(i int, s *goquery.Selection) {
-		infoText := s.Find(".small.fade").Text()
-		infoText = strings.ReplaceAll(infoText, " ", "")
-		infoText = strings.ReplaceAll(infoText, string(rune(0xA0)), "")
-		if len(infoText) == 0 {
-			return
-		}
+	// 从页面标题获取节点中文名称，格式: "V2EX › 问与答"
+	nodeName := nodeCode
+	pageTitle := doc.Find("title").Text()
+	if parts := strings.Split(pageTitle, "›"); len(parts) >= 2 {
+		nodeName = strings.TrimSpace(parts[len(parts)-1])
+	}
 
+	doc.Find("div#TopicsNode div.cell").Each(func(i int, s *goquery.Selection) {
 		topic := model.Topic{}
 
 		// 解析标题和链接
 		titleSel := s.Find(".item_title a")
 		topic.Title = strings.TrimSpace(titleSel.Text())
+		if topic.Title == "" {
+			return
+		}
 		topic.Title = strings.ReplaceAll(topic.Title, "[", "<")
 		topic.Title = strings.ReplaceAll(topic.Title, "]", ">")
 
@@ -213,11 +240,16 @@ func parseTopicListByNode(doc *goquery.Document, nodeCode string) []model.Topic 
 		}
 
 		topic.Node = model.Node{
-			Name: nodeCode,
+			Name: nodeName,
 			Code: nodeCode,
 		}
 
+		// 解析 topic_info（与 Tab 页面结构一致）
+		infoText := s.Find(".topic_info").Text()
+		infoText = strings.ReplaceAll(infoText, " ", "")
+		infoText = strings.ReplaceAll(infoText, string(rune(0xA0)), "") // 替换 &nbsp;
 		infoList := strings.Split(infoText, "•")
+
 		if len(infoList) > 0 {
 			topic.Author = infoList[0]
 		}
@@ -225,7 +257,7 @@ func parseTopicListByNode(doc *goquery.Document, nodeCode string) []model.Topic 
 			topic.RelativeTime = infoList[1]
 		}
 		if len(infoList) > 2 {
-			topic.LastReplyBy = infoList[2]
+			topic.LastReplyBy = strings.TrimPrefix(infoList[2], "最后回复来自")
 		}
 
 		replyCount := strings.TrimSpace(s.Find("a.count_livid").Text())
@@ -233,9 +265,7 @@ func parseTopicListByNode(doc *goquery.Document, nodeCode string) []model.Topic 
 			topic.ReplyCount, _ = strconv.Atoi(replyCount)
 		}
 
-		if topic.Title != "" {
-			topics = append(topics, topic)
-		}
+		topics = append(topics, topic)
 	})
 
 	return topics

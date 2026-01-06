@@ -19,6 +19,7 @@ type TopicList struct {
 	focused  bool
 	width    int
 	height   int
+	loading  bool // 是否正在加载更多
 }
 
 // NewTopicList 创建主题列表
@@ -41,6 +42,26 @@ func (t *TopicList) SetTopics(topics []model.Topic) {
 	t.topics = topics
 	t.selected = 0
 	t.offset = 0
+}
+
+// AppendTopics 追加主题到列表（用于无限滚动）
+func (t *TopicList) AppendTopics(topics []model.Topic) {
+	t.topics = append(t.topics, topics...)
+}
+
+// AtBottom 检测是否滚动到底部（选中最后一个项目）
+func (t *TopicList) AtBottom() bool {
+	return len(t.topics) > 0 && t.selected >= len(t.topics)-1
+}
+
+// SetLoading 设置加载状态
+func (t *TopicList) SetLoading(loading bool) {
+	t.loading = loading
+}
+
+// IsLoading 获取加载状态
+func (t *TopicList) IsLoading() bool {
+	return t.loading
 }
 
 // SetFocused 设置焦点状态
@@ -149,7 +170,7 @@ func (t *TopicList) HalfPageDown() {
 
 // visibleItemCount 计算可见项数量
 func (t TopicList) visibleItemCount() int {
-	itemHeight := 2
+	itemHeight := 3 // 标题行 + 元信息行 + 空行
 	if t.height <= 0 {
 		return 10
 	}
@@ -190,7 +211,16 @@ func (t TopicList) View() string {
 		items = append(items, item)
 	}
 
-	return strings.Join(items, "\n")
+	result := strings.Join(items, "\n")
+
+	// 如果正在加载更多，在底部显示加载提示
+	if t.loading {
+		loadingStyle := lipgloss.NewStyle().
+			Foreground(ui.CurrentTheme.Info)
+		result += "\n" + loadingStyle.Render("  加载中...")
+	}
+
+	return result
 }
 
 
@@ -272,35 +302,27 @@ func (t TopicList) renderTopicItem(topic model.Topic, index int, selected bool, 
 			line2 += normalStyle.Render(strings.Repeat(" ", width-line2Width))
 		}
 	} else {
-		// 非选中项不设置背景色
-		nodeStyle := lipgloss.NewStyle().Foreground(ui.CurrentTheme.NodeColor)
-		authorStyle := lipgloss.NewStyle().Foreground(ui.CurrentTheme.AuthorColor)
-		timeStyle := lipgloss.NewStyle().Foreground(ui.CurrentTheme.TimeColor)
-		normalStyle := lipgloss.NewStyle().Foreground(ui.CurrentTheme.Muted)
+		// 非选中项 - 元信息行使用统一的淡色，减少视觉干扰
+		mutedStyle := lipgloss.NewStyle().Foreground(ui.CurrentTheme.Muted)
 
-		line2 = normalStyle.Render("   [") +
-			nodeStyle.Render(topic.Node.Name) +
-			normalStyle.Render("] ") +
-			authorStyle.Render(topic.Author) +
-			normalStyle.Render(" · ") +
-			timeStyle.Render(topic.RelativeTime)
+		line2 = mutedStyle.Render("   [" + topic.Node.Name + "] " +
+			topic.Author + " · " + topic.RelativeTime)
 
 		if topic.LastReplyBy != "" {
-			line2 += normalStyle.Render(" · ") +
-				authorStyle.Render(topic.LastReplyBy)
+			line2 += mutedStyle.Render(" · " + topic.LastReplyBy)
 		}
 
-		// 回复数
+		// 回复数 - 保持轻微高亮以便识别
 		if topic.ReplyCount > 0 {
 			countStyle := lipgloss.NewStyle().
-				Foreground(ui.CurrentTheme.CountColor).
+				Foreground(ui.CurrentTheme.Muted).
 				Background(ui.CurrentTheme.ReplyCountBg).
 				Padding(0, 1)
-			line2 += normalStyle.Render(" ") + countStyle.Render(fmt.Sprintf("%d", topic.ReplyCount))
+			line2 += mutedStyle.Render(" ") + countStyle.Render(fmt.Sprintf("%d", topic.ReplyCount))
 		}
 	}
 
-	return line1 + "\n" + line2
+	return line1 + "\n" + line2 + "\n" // 末尾空行增加间距
 }
 
 // sanitizeTitle 清理标题，移除换行符和特殊字符，确保单行显示

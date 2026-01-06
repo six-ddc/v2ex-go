@@ -24,8 +24,10 @@ func Hyperlink(url, text string) string {
 }
 
 func init() {
-	// 初始化 HTML to Markdown 转换器
-	htmlConverter = md.NewConverter("", true, nil)
+	// 初始化 HTML to Markdown 转换器，禁用转义以避免 \. \- 等
+	htmlConverter = md.NewConverter("", true, &md.Options{
+		EscapeMode: "disabled",
+	})
 
 	// 自定义链接处理规则
 	htmlConverter.AddRules(
@@ -52,9 +54,9 @@ func init() {
 				}
 
 				// 图片显示为可点击的 [图片] 链接
-				text := "🖼️ 图片"
+				text := "🖼️  图片"
 				if alt != "" {
-					text = "🖼️ " + alt
+					text = "🖼️  " + alt
 				}
 				result := Hyperlink(src, text)
 				return &result

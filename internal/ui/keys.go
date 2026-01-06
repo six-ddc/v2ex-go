@@ -23,13 +23,12 @@ type KeyMap struct {
 	Down  key.Binding
 
 	// 列表导航
-	Top        key.Binding
-	Bottom     key.Binding
-	HalfPageUp key.Binding
+	Top          key.Binding
+	Bottom       key.Binding
+	HalfPageUp   key.Binding
 	HalfPageDown key.Binding
-	PageUp     key.Binding
-	PageDown   key.Binding
-	NextPage   key.Binding
+	PageUp       key.Binding
+	PageDown     key.Binding
 
 	// 详情视图
 	PrevTopic  key.Binding
@@ -137,10 +136,6 @@ var DefaultKeyMap = KeyMap{
 	PageDown: key.NewBinding(
 		key.WithKeys("ctrl+f", " "),
 		key.WithHelp("Ctrl+F/Space", "下翻页"),
-	),
-	NextPage: key.NewBinding(
-		key.WithKeys("p"),
-		key.WithHelp("p", "加载下页"),
 	),
 
 	// 详情视图

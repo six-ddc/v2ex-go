@@ -1,6 +1,8 @@
 package components
 
 import (
+	"fmt"
+	"runtime"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -77,15 +79,38 @@ var MainViewHelp = []HelpItem{
 	{Key: "q", Desc: "退出"},
 }
 
-// DetailViewHelp 详情视图帮助项
-var DetailViewHelp = []HelpItem{
-	{Key: "j/k", Desc: "滚动"},
-	{Key: "g/G", Desc: "顶部/底部"},
-	{Key: "n", Desc: "加载更多"},
-	{Key: "[/]", Desc: "上/下篇"},
-	{Key: "o", Desc: "浏览器"},
-	{Key: "q", Desc: "返回"},
+// NodeViewHelp 节点模式帮助项（带分页信息）
+func NodeViewHelp(currentPage, totalPages int) []HelpItem {
+	pageInfo := fmt.Sprintf("第%d/%d页", currentPage, totalPages)
+	items := []HelpItem{
+		{Key: "j/k", Desc: "上下"},
+		{Key: "Enter", Desc: "打开"},
+		{Key: "t", Desc: "主题"},
+		{Key: "q", Desc: "退出"},
+	}
+	// 如果还有更多页，显示滚动加载提示
+	if currentPage < totalPages {
+		items = append(items, HelpItem{Key: pageInfo, Desc: "滚到底部加载更多"})
+	} else {
+		items = append(items, HelpItem{Key: pageInfo, Desc: "已全部加载"})
+	}
+	return items
 }
+
+// DetailViewHelp 详情视图帮助项（动态生成，macOS 显示浏览器选项）
+var DetailViewHelp = func() []HelpItem {
+	items := []HelpItem{
+		{Key: "j/k", Desc: "滚动"},
+		{Key: "g/G", Desc: "顶部/底部"},
+		{Key: "[/]", Desc: "上/下篇"},
+	}
+	// 仅 macOS 支持 open 命令打开浏览器
+	if runtime.GOOS == "darwin" {
+		items = append(items, HelpItem{Key: "o", Desc: "浏览器打开"})
+	}
+	items = append(items, HelpItem{Key: "q", Desc: "返回"})
+	return items
+}()
 
 // SearchViewHelp 搜索视图帮助项
 var SearchViewHelp = []HelpItem{

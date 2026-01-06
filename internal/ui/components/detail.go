@@ -23,6 +23,9 @@ type Detail struct {
 	// 导航状态
 	currentIndex int // 当前帖子在列表中的索引
 	totalCount   int // 列表总数
+
+	// 加载状态
+	loading bool // 是否正在加载更多回复
 }
 
 // NewDetail 创建详情视图
@@ -50,6 +53,7 @@ func (d *Detail) SetTopic(topic *model.Topic, replies []model.Reply) {
 	d.topic = topic
 	d.replies = replies
 	d.updateContent()
+	d.viewport.GotoTop() // 重置滚动位置到顶部
 }
 
 // SetNavInfo 设置导航信息
@@ -143,6 +147,17 @@ func (d *Detail) AppendReplies(replies []model.Reply, newPage int) {
 	d.viewport.SetYOffset(currentYOffset)
 }
 
+// SetLoading 设置加载状态
+func (d *Detail) SetLoading(loading bool) {
+	d.loading = loading
+	d.updateContent() // 更新内容以显示/隐藏加载提示
+}
+
+// IsLoading 获取加载状态
+func (d *Detail) IsLoading() bool {
+	return d.loading
+}
+
 // updateContent 更新视口内容
 func (d *Detail) updateContent() {
 	if d.topic == nil {
@@ -153,6 +168,9 @@ func (d *Detail) updateContent() {
 	contentWidth := d.viewport.Width - 2
 
 	var content strings.Builder
+
+	// 标题前空行
+	content.WriteString("\n")
 
 	// 标题（可点击跳转到原帖）
 	titleStyle := lipgloss.NewStyle().
@@ -233,6 +251,15 @@ func (d *Detail) updateContent() {
 	// 回复列表
 	for _, reply := range d.replies {
 		content.WriteString(d.renderReply(reply, contentWidth))
+		content.WriteString("\n")
+	}
+
+	// 如果正在加载更多回复，显示加载提示
+	if d.loading {
+		loadingStyle := lipgloss.NewStyle().
+			Foreground(ui.CurrentTheme.Info)
+		content.WriteString("\n")
+		content.WriteString(loadingStyle.Render("  加载中..."))
 		content.WriteString("\n")
 	}
 
@@ -321,7 +348,7 @@ func (d Detail) renderReply(reply model.Reply, width int) string {
 	if reply.Likes > 0 {
 		likesStyle := lipgloss.NewStyle().
 			Foreground(ui.CurrentTheme.OPColor)
-		header += normalStyle.Render(" · ") + likesStyle.Render(fmt.Sprintf("❤️ %d", reply.Likes))
+		header += normalStyle.Render(" · ") + likesStyle.Render(fmt.Sprintf("❤️  %d", reply.Likes))
 	}
 
 	content.WriteString(header)

@@ -1,6 +1,11 @@
 package ui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"os"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+)
 
 // Theme 颜色主题
 type Theme struct {
@@ -103,10 +108,22 @@ var LightTheme = Theme{
 }
 
 // CurrentTheme 当前使用的主题
-var CurrentTheme = DarkTheme
+var CurrentTheme Theme
 
 // IsDarkTheme 是否是深色主题
-var IsDarkTheme = true
+var IsDarkTheme bool
+
+func init() {
+	// 自动检测终端背景色
+	output := termenv.NewOutput(os.Stdout)
+	if output.HasDarkBackground() {
+		CurrentTheme = DarkTheme
+		IsDarkTheme = true
+	} else {
+		CurrentTheme = LightTheme
+		IsDarkTheme = false
+	}
+}
 
 // ToggleTheme 切换主题
 func ToggleTheme() {

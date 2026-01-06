@@ -1,6 +1,9 @@
 package app
 
 import (
+	"os/exec"
+	"runtime"
+
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -33,9 +36,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.initialized = true
 		m.err = nil
 		m.topics = msg.topics
-		// 总是更新二级节点，即使为空也要清空旧数据
-		m.subNodes = msg.nodes
-		m.subnav.SetNodes(m.subNodes)
+		// Tab 模式下更新二级节点列表（可能为空）
+		// 节点模式下保持当前节点列表不变
+		if !m.nodeMode {
+			m.subNodes = msg.nodes
+			m.subnav.SetNodes(m.subNodes)
+			// 节点列表变化后需要重新计算布局高度
+			m.updateComponentSizes()
+		} else {
+			// 节点模式下更新总页数
+			m.nodeTotalPages = msg.totalPages
+		}
 		if msg.user != nil {
 			m.user = msg.user
 			m.statusBar.SetUser(m.user)
@@ -55,18 +66,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case replyPageLoadedMsg:
-		m.loading = false
 		m.err = nil
 		// 追加新回复到现有列表（无限滚动模式）
 		m.topicDetail.TotalPages = msg.totalPages
 		m.replies = append(m.replies, msg.replies...)
 		m.replyPage = msg.page
+		m.detail.SetLoading(false) // 先清除加载状态
 		m.detail.AppendReplies(msg.replies, msg.page)
+		return m, nil
+
+	case nodeTopicsAppendedMsg:
+		m.err = nil
+		// 追加新主题到列表（无限滚动模式）
+		m.nodePage = msg.page
+		m.nodeTotalPages = msg.totalPages
+		// 只更新 topicList，m.topics 不再单独维护
+		m.topicList.AppendTopics(msg.topics)
+		m.topicList.SetLoading(false) // 清除加载状态
 		return m, nil
 
 	case errMsg:
 		m.loading = false
 		m.err = msg.err
+		// 清除组件级加载状态
+		m.topicList.SetLoading(false)
+		m.detail.SetLoading(false)
 		return m, nil
 	}
 
@@ -93,7 +117,6 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, m.keys.Help):
-		// TODO: 显示帮助
 		return m, nil
 
 	case key.Matches(msg, m.keys.Refresh):
@@ -173,8 +196,19 @@ func (m Model) handleNavbarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Right):
 		m.navbar.MoveRight()
 		return m, nil
+	case key.Matches(msg, m.keys.Down):
+		// 下键切换到下一组（subnav 或 topiclist）
+		m.updateFocusState(false)
+		if m.subnav.HasNodes() {
+			m.focusedPane = PaneSubnav
+		} else {
+			m.focusedPane = PaneTopicList
+		}
+		m.updateFocusState(true)
+		return m, nil
 	case key.Matches(msg, m.keys.Enter):
-		// 加载选中 Tab 的内容
+		// 激活当前光标位置的 Tab
+		m.navbar.Activate()
 		tab := m.navbar.SelectedTab()
 		m.loading = true
 		m.nodeMode = false
@@ -194,8 +228,21 @@ func (m Model) handleSubnavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Right):
 		m.subnav.MoveRight()
 		return m, nil
+	case key.Matches(msg, m.keys.Up):
+		// 上键切换到 navbar
+		m.updateFocusState(false)
+		m.focusedPane = PaneNavbar
+		m.updateFocusState(true)
+		return m, nil
+	case key.Matches(msg, m.keys.Down):
+		// 下键切换到 topiclist
+		m.updateFocusState(false)
+		m.focusedPane = PaneTopicList
+		m.updateFocusState(true)
+		return m, nil
 	case key.Matches(msg, m.keys.Enter):
-		// 加载选中节点的内容
+		// 激活当前光标位置的节点
+		m.subnav.Activate()
 		node := m.subnav.SelectedNode()
 		if node.Code != "" {
 			m.loading = true
@@ -215,11 +262,22 @@ func (m Model) handleSubnavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleTopicListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Up):
+		// 在第一个帖子时，上键切换到上一组
+		if m.topicList.Selected() == 0 {
+			m.updateFocusState(false)
+			if m.subnav.HasNodes() {
+				m.focusedPane = PaneSubnav
+			} else {
+				m.focusedPane = PaneNavbar
+			}
+			m.updateFocusState(true)
+			return m, nil
+		}
 		m.topicList.MoveUp()
 		return m, nil
 	case key.Matches(msg, m.keys.Down):
 		m.topicList.MoveDown()
-		return m, nil
+		return m.checkAndLoadMoreTopics()
 	case key.Matches(msg, m.keys.Enter), key.Matches(msg, m.keys.Right):
 		// 打开帖子详情
 		topic := m.topicList.SelectedTopic()
@@ -233,29 +291,56 @@ func (m Model) handleTopicListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case key.Matches(msg, m.keys.Bottom):
 		m.topicList.GoToBottom()
-		return m, nil
+		return m.checkAndLoadMoreTopics()
 	case key.Matches(msg, m.keys.PageUp):
 		m.topicList.PageUp()
 		return m, nil
 	case key.Matches(msg, m.keys.PageDown):
 		m.topicList.PageDown()
-		return m, nil
+		return m.checkAndLoadMoreTopics()
 	case key.Matches(msg, m.keys.HalfPageUp):
 		m.topicList.HalfPageUp()
 		return m, nil
 	case key.Matches(msg, m.keys.HalfPageDown):
 		m.topicList.HalfPageDown()
-		return m, nil
-	case key.Matches(msg, m.keys.NextPage):
-		// 加载下一页 (仅节点模式)
-		if m.nodeMode {
-			m.nodePage++
-			m.loading = true
-			return m, m.loadTopicsByNode(m.currentNode, m.nodePage)
-		}
-		return m, nil
+		return m.checkAndLoadMoreTopics()
 	}
 	return m, nil
+}
+
+// checkAndLoadMoreTopics 检查是否到底部并加载更多主题（节点模式）
+func (m Model) checkAndLoadMoreTopics() (tea.Model, tea.Cmd) {
+	// 仅在节点模式下生效
+	if !m.nodeMode {
+		return m, nil
+	}
+
+	// 如果已经在加载中，不重复触发
+	if m.topicList.IsLoading() {
+		return m, nil
+	}
+
+	// 检测是否到底部且还有下一页
+	if m.topicList.AtBottom() && m.nodePage < m.nodeTotalPages {
+		return m.loadMoreTopics()
+	}
+
+	return m, nil
+}
+
+// loadMoreTopics 加载更多主题（无限滚动）
+func (m Model) loadMoreTopics() (tea.Model, tea.Cmd) {
+	if !m.nodeMode || m.topicList.IsLoading() {
+		return m, nil
+	}
+
+	nextPage := m.nodePage + 1
+	if nextPage > m.nodeTotalPages {
+		return m, nil
+	}
+
+	m.topicList.SetLoading(true) // 设置组件级加载状态
+	return m, m.loadMoreNodeTopics(m.currentNode, nextPage)
 }
 
 // handleDetailViewKey 详情视图键盘处理
@@ -296,14 +381,11 @@ func (m Model) handleDetailViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.navigateTopic(-1)
 		case "]":
 			return m.navigateTopic(1)
-		case "n":
-			// 手动加载下一页回复
-			return m.loadMoreReplies()
-		case "p":
-			// p 键不再使用（无限滚动模式下没有上一页概念）
-			return m, nil
 		case "o":
-			// TODO: 在浏览器中打开
+			// macOS: 使用 open 命令在浏览器中打开
+			if runtime.GOOS == "darwin" && m.topicDetail != nil && m.topicDetail.URL != "" {
+				exec.Command("open", m.topicDetail.URL).Start()
+			}
 			return m, nil
 		}
 	case tea.KeyCtrlF:
@@ -327,7 +409,7 @@ func (m Model) handleDetailViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // checkAndLoadMoreReplies 检查是否到底部并加载更多回复
 func (m Model) checkAndLoadMoreReplies() (tea.Model, tea.Cmd) {
 	// 如果已经在加载中，不重复触发
-	if m.loading {
+	if m.detail.IsLoading() {
 		return m, nil
 	}
 
@@ -341,7 +423,7 @@ func (m Model) checkAndLoadMoreReplies() (tea.Model, tea.Cmd) {
 
 // loadMoreReplies 加载更多回复
 func (m Model) loadMoreReplies() (tea.Model, tea.Cmd) {
-	if m.topicDetail == nil || m.loading {
+	if m.topicDetail == nil || m.detail.IsLoading() {
 		return m, nil
 	}
 
@@ -350,7 +432,7 @@ func (m Model) loadMoreReplies() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.loading = true
+	m.detail.SetLoading(true) // 设置组件级加载状态
 	return m, m.loadReplyPage(m.topicDetail.URL, nextPage)
 }
 
@@ -466,8 +548,14 @@ func (m *Model) updateComponentSizes() {
 	m.subnav.SetWidth(m.width)
 	m.helpBar.SetWidth(m.width)
 
+	// 计算实际的 subnav 高度（有节点时显示，无节点时不显示）
+	actualSubnavHeight := 0
+	if m.subnav.HasNodes() {
+		actualSubnavHeight = subnavHeight
+	}
+
 	// 主题列表高度 = 总高度 - 固定区域
-	listHeight := m.height - statusBarHeight - navbarHeight - subnavHeight - helpBarHeight
+	listHeight := m.height - statusBarHeight - navbarHeight - actualSubnavHeight - helpBarHeight
 	if listHeight < 5 {
 		listHeight = 5
 	}
@@ -484,9 +572,10 @@ func (m *Model) updateComponentSizes() {
 // Messages
 
 type topicsLoadedMsg struct {
-	topics []model.Topic
-	nodes  []model.Node
-	user   *model.User
+	topics     []model.Topic
+	nodes      []model.Node
+	user       *model.User
+	totalPages int // 节点模式下的总页数
 }
 
 type topicDetailLoadedMsg struct {
@@ -496,6 +585,13 @@ type topicDetailLoadedMsg struct {
 
 type replyPageLoadedMsg struct {
 	replies    []model.Reply
+	page       int
+	totalPages int
+}
+
+// nodeTopicsAppendedMsg 节点主题追加消息（用于无限滚动）
+type nodeTopicsAppendedMsg struct {
+	topics     []model.Topic
 	page       int
 	totalPages int
 }
@@ -524,14 +620,31 @@ func (m *Model) loadTopicsByTab(tab string) tea.Cmd {
 func (m *Model) loadTopicsByNode(nodeCode string, page int) tea.Cmd {
 	client := m.client
 	return func() tea.Msg {
-		topics, err := client.GetTopicsByNode(nodeCode, page)
+		result, err := client.GetTopicsByNode(nodeCode, page)
 		if err != nil {
 			return errMsg{err: err}
 		}
 		return topicsLoadedMsg{
-			topics: topics,
-			nodes:  nil,
-			user:   nil,
+			topics:     result.Topics,
+			nodes:      nil,
+			user:       nil,
+			totalPages: result.TotalPages,
+		}
+	}
+}
+
+// loadMoreNodeTopics 加载更多节点主题（追加模式）
+func (m *Model) loadMoreNodeTopics(nodeCode string, page int) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		result, err := client.GetTopicsByNode(nodeCode, page)
+		if err != nil {
+			return errMsg{err: err}
+		}
+		return nodeTopicsAppendedMsg{
+			topics:     result.Topics,
+			page:       page,
+			totalPages: result.TotalPages,
 		}
 	}
 }

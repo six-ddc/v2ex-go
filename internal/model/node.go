@@ -27,7 +27,6 @@ var DefaultTabs = []Tab{
 	{Name: "问与答", Code: "qna", HasSub: true},
 	{Name: "最热", Code: "hot", HasSub: false},
 	{Name: "全部", Code: "all", HasSub: true},
-	{Name: "R2", Code: "r2", HasSub: false},
-	{Name: "节点", Code: "nodes", HasSub: false},
-	{Name: "关注", Code: "members", HasSub: false},
+	{Name: "R2", Code: "r2", HasSub: true},
+	{Name: "WXNA", Code: "xna", HasSub: true},
 }

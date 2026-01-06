@@ -46,9 +46,10 @@ type Model struct {
 	replies     []model.Reply
 
 	// 节点模式
-	nodeMode    bool   // 是否处于节点浏览模式
-	currentNode string // 当前节点代码
-	nodePage    int    // 节点页码
+	nodeMode       bool   // 是否处于节点浏览模式
+	currentNode    string // 当前节点代码
+	nodePage       int    // 节点页码
+	nodeTotalPages int    // 节点总页数
 
 	// 详情页回复分页
 	replyPage int // 当前回复页码

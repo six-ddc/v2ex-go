@@ -12,17 +12,19 @@ import (
 
 // Navbar 一级导航栏组件
 type Navbar struct {
-	tabs     []model.Tab
-	selected int
-	focused  bool
-	width    int
+	tabs    []model.Tab
+	cursor  int  // 光标位置（浏览时移动）
+	active  int  // 激活项（Enter 确认后的实际选中）
+	focused bool
+	width   int
 }
 
 // NewNavbar 创建导航栏
 func NewNavbar() Navbar {
 	return Navbar{
-		tabs:     model.DefaultTabs,
-		selected: 9, // 默认选中 "全部"
+		tabs:   model.DefaultTabs,
+		cursor: 9, // 默认 "全部"
+		active: 9,
 	}
 }
 
@@ -39,6 +41,10 @@ func (n Navbar) Update(msg tea.Msg) (Navbar, tea.Cmd) {
 // SetFocused 设置焦点状态
 func (n *Navbar) SetFocused(focused bool) {
 	n.focused = focused
+	if focused {
+		// 获得焦点时，光标恢复到激活项位置
+		n.cursor = n.active
+	}
 }
 
 // SetWidth 设置宽度
@@ -46,44 +52,51 @@ func (n *Navbar) SetWidth(width int) {
 	n.width = width
 }
 
-// SetSelected 设置选中项
+// SetSelected 设置选中项（同时设置光标和激活项）
 func (n *Navbar) SetSelected(index int) {
 	if index >= 0 && index < len(n.tabs) {
-		n.selected = index
+		n.cursor = index
+		n.active = index
 	}
 }
 
-// Selected 获取当前选中的索引
-func (n Navbar) Selected() int {
-	return n.selected
+// Activate 激活当前光标位置的项
+func (n *Navbar) Activate() {
+	n.active = n.cursor
 }
 
-// SelectedTab 获取当前选中的 Tab
+// Selected 获取当前光标位置
+func (n Navbar) Selected() int {
+	return n.cursor
+}
+
+// SelectedTab 获取当前光标位置的 Tab
 func (n Navbar) SelectedTab() model.Tab {
-	if n.selected >= 0 && n.selected < len(n.tabs) {
-		return n.tabs[n.selected]
+	if n.cursor >= 0 && n.cursor < len(n.tabs) {
+		return n.tabs[n.cursor]
 	}
 	return model.Tab{}
 }
 
-// MoveLeft 向左移动
+// MoveLeft 向左移动光标
 func (n *Navbar) MoveLeft() {
-	if n.selected > 0 {
-		n.selected--
+	if n.cursor > 0 {
+		n.cursor--
 	}
 }
 
-// MoveRight 向右移动
+// MoveRight 向右移动光标
 func (n *Navbar) MoveRight() {
-	if n.selected < len(n.tabs)-1 {
-		n.selected++
+	if n.cursor < len(n.tabs)-1 {
+		n.cursor++
 	}
 }
 
-// JumpTo 跳转到指定索引
+// JumpTo 跳转到指定索引（同时设置光标和激活项）
 func (n *Navbar) JumpTo(index int) {
 	if index >= 0 && index < len(n.tabs) {
-		n.selected = index
+		n.cursor = index
+		n.active = index
 	}
 }
 
@@ -93,24 +106,26 @@ func (n Navbar) View() string {
 
 	for i, tab := range n.tabs {
 		var rendered string
-		if i == n.selected {
-			if n.focused {
-				// 选中且有焦点 - 高亮背景（语义上的高亮）
-				style := lipgloss.NewStyle().
-					Foreground(ui.CurrentTheme.PrimaryFg).
-					Background(ui.CurrentTheme.Primary).
-					Bold(true).
-					Padding(0, 1)
-				rendered = style.Render(tab.Name)
-			} else {
-				// 选中但无焦点 - 用 [xxx] 包裹标识当前选中
-				style := lipgloss.NewStyle().
-					Foreground(ui.CurrentTheme.Primary).
-					Bold(true)
-				rendered = style.Render("[" + tab.Name + "]")
-			}
+		isCursor := (i == n.cursor)
+		isActive := (i == n.active)
+
+		if n.focused && isCursor {
+			// 有焦点时，光标位置高亮背景
+			style := lipgloss.NewStyle().
+				Foreground(ui.CurrentTheme.PrimaryFg).
+				Background(ui.CurrentTheme.Primary).
+				Bold(true).
+				Padding(0, 1)
+			rendered = style.Render(tab.Name)
+		} else if !n.focused && isActive {
+			// 无焦点时，激活项用颜色标识
+			style := lipgloss.NewStyle().
+				Foreground(ui.CurrentTheme.Primary).
+				Bold(true).
+				Padding(0, 1)
+			rendered = style.Render(tab.Name)
 		} else {
-			// 未选中 - 灰色文字，不设置背景色
+			// 其他项 - 灰色文字
 			style := lipgloss.NewStyle().
 				Foreground(ui.CurrentTheme.Muted).
 				Padding(0, 1)

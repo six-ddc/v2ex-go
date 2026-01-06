@@ -35,8 +35,15 @@ func (m Model) View() string {
 
 // mainView 渲染主视图
 func (m Model) mainView() string {
+	// 判断是否显示二级导航
+	hasSubnav := m.subnav.HasNodes()
+	actualSubnavHeight := 0
+	if hasSubnav {
+		actualSubnavHeight = subnavHeight
+	}
+
 	// 计算主题列表高度
-	listHeight := m.height - statusBarHeight - navbarHeight - subnavHeight - helpBarHeight
+	listHeight := m.height - statusBarHeight - navbarHeight - actualSubnavHeight - helpBarHeight
 
 	// 状态栏 - 固定 1 行
 	statusBar := lipgloss.Place(
@@ -50,13 +57,6 @@ func (m Model) mainView() string {
 		m.width, navbarHeight,
 		lipgloss.Left, lipgloss.Top,
 		m.navbar.View(),
-	)
-
-	// 二级导航 - 固定 2 行
-	subnav := lipgloss.Place(
-		m.width, subnavHeight,
-		lipgloss.Left, lipgloss.Top,
-		m.subnav.View(),
 	)
 
 	// 主题列表 - 自适应剩余空间
@@ -79,7 +79,12 @@ func (m Model) mainView() string {
 	)
 
 	// 帮助栏 - 固定 1 行
-	m.helpBar.SetItems(components.MainViewHelp)
+	// 节点模式下显示分页提示，否则显示普通帮助
+	if m.nodeMode {
+		m.helpBar.SetItems(components.NodeViewHelp(m.nodePage, m.nodeTotalPages))
+	} else {
+		m.helpBar.SetItems(components.MainViewHelp)
+	}
 	helpBar := lipgloss.Place(
 		m.width, helpBarHeight,
 		lipgloss.Left, lipgloss.Top,
@@ -87,11 +92,26 @@ func (m Model) mainView() string {
 	)
 
 	// 使用 JoinVertical 组合所有区域
+	if hasSubnav {
+		subnav := lipgloss.Place(
+			m.width, subnavHeight,
+			lipgloss.Left, lipgloss.Top,
+			m.subnav.View(),
+		)
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			statusBar,
+			navbar,
+			subnav,
+			topicList,
+			helpBar,
+		)
+	}
+
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		statusBar,
 		navbar,
-		subnav,
 		topicList,
 		helpBar,
 	)
