@@ -14,13 +14,13 @@
 ## 安装
 
 ```bash
-go install github.com/yourname/v2ex-tui@latest
+go install github.com/six-ddc/v2ex-tui@latest
 ```
 
 或从源码构建：
 
 ```bash
-git clone https://github.com/yourname/v2ex-tui.git
+git clone https://github.com/six-ddc/v2ex-tui.git
 cd v2ex-tui
 go build -o v2ex-tui
 ```

@@ -8,8 +8,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/six-ddc/v2ex-go/internal/model"
-	"github.com/six-ddc/v2ex-go/internal/ui"
+	"github.com/six-ddc/v2ex-tui/internal/model"
+	"github.com/six-ddc/v2ex-tui/internal/ui"
 )
 
 // Detail 帖子详情视图组件

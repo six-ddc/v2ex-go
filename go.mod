@@ -1,4 +1,4 @@
-module github.com/six-ddc/v2ex-go
+module github.com/six-ddc/v2ex-tui
 
 go 1.24.4
 

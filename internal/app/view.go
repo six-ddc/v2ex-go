@@ -5,8 +5,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/six-ddc/v2ex-go/internal/ui"
-	"github.com/six-ddc/v2ex-go/internal/ui/components"
+	"github.com/six-ddc/v2ex-tui/internal/ui"
+	"github.com/six-ddc/v2ex-tui/internal/ui/components"
 )
 
 // 布局常量

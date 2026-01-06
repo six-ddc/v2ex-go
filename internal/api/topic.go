@@ -8,7 +8,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/net/html"
 
-	"github.com/six-ddc/v2ex-go/internal/model"
+	"github.com/six-ddc/v2ex-tui/internal/model"
 )
 
 // 预编译正则表达式，避免重复编译
