@@ -254,7 +254,7 @@
 ### 5.1 项目结构
 
 ```
-v2ex-go2/
+v2ex-tui/
 ├── main.go                 # 程序入口
 ├── cmd/
 │   └── root.go             # CLI 命令定义
