@@ -2,7 +2,8 @@
 
 一个现代化的 V2EX 终端客户端，基于 [Bubble Tea](https://github.com/charmbracelet/bubbletea) 框架构建。
 
-![screenshot](screenshot.png)
+![](screenshot.png)
+![](screenshot2.png)
 
 ## 核心特性
 
